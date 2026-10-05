@@ -148,8 +148,11 @@ on Windows, enable it under *Settings > System > Optional features*.
 
 ### 2. Install sshc
 
-Pick one method. All of them leave you with an `sshc` command on your `PATH`
-and need no administrator rights.
+Pick **one** method and stay with it. All of them leave you with an `sshc`
+command on your `PATH` and need no administrator rights. Installing with two
+methods (say Scoop and the installer script) leaves two copies, and whichever
+folder comes first on `PATH` wins - see
+[Troubleshooting](#troubleshooting) if `sshc -v` shows an old version.
 
 **Installer script** - nothing else required. It downloads the right file for
 your machine from the latest release, checks it against the release's
@@ -226,6 +229,11 @@ installs somewhere else; running `--install` from a newer download upgrades.
 On Linux and macOS, `--install` also adds the [shell hook](#the-shell-hook)
 that `sshc set --session` needs.
 `SHA256SUMS` on the release page lets you verify the download.
+
+**Upgrading.** Use the method you installed with: run the installer script
+again, `scoop update sshc`, or `brew upgrade sshc`. Then open a new terminal,
+so that the [shell hook](#the-shell-hook) of the new version is loaded.
+`sshc --install` warns if it finds another copy ahead of it on your `PATH`.
 
 **From source instead** (needs [Go](https://go.dev/dl/) 1.26 or newer):
 
@@ -705,6 +713,26 @@ one-time code, which sshc leaves to you.
 
 Setting `SSHC_DEBUG=1` makes sshc print what it decides at each step (never
 the secret itself).
+
+**`sshc -v` still shows the old version after an upgrade**, or a new option
+just prints the usage text. First open a new terminal. If that does not help,
+you have two copies installed and the older one comes first on your `PATH`.
+List them:
+
+```powershell
+where.exe sshc        # Windows
+```
+
+```bash
+which -a sshc         # Linux, macOS
+```
+
+Keep one. If the first one listed belongs to a package manager (a path
+containing `scoop\shims` or `Cellar`), either upgrade it there
+(`scoop update sshc`, `brew upgrade sshc`) and delete the other copy, or
+uninstall it there (`scoop uninstall sshc`, `brew uninstall sshc`). The
+installer script's copy lives in `%LOCALAPPDATA%\Programs\sshc` on Windows and
+`~/.local/bin` elsewhere.
 
 **"the stored password for ... was not accepted"** (or passphrase). It was
 rejected, so sshc stopped offering it and let you type. Update the stored
