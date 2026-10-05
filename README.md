@@ -25,24 +25,98 @@ the password prompt when ssh calls back. Because ssh does the asking:
 - `~/.ssh/config` aliases, `ProxyJump`, port forwards, etc. behave as usual;
 - the password is never on a command line, where `ps` would show it.
 
-## Install
+## Getting started
 
-With Go 1.26 or newer:
+### 1. Check your OpenSSH
+
+sshc drives the OpenSSH client that is already on your machine and needs
+version 8.5 or newer:
+
+```console
+$ ssh -V
+OpenSSH_9.6p1 ...
+```
+
+Linux and macOS have shipped a new enough version for years, and so do current
+Windows 10 and 11 (as "OpenSSH Client", on by default). If `ssh` is not found
+on Windows, enable it under *Settings > System > Optional features*.
+
+### 2. Install sshc
+
+There are no prebuilt downloads yet, so you need [Go](https://go.dev/dl/) 1.26
+or newer to build it.
+
+**Linux and macOS**
 
 ```console
 $ go install github.com/W-Industries-Luke/sshc@latest
 ```
 
-or from a clone:
+This puts `sshc` in `~/go/bin`. If `sshc --version` is then "command not
+found", add that directory to your `PATH`:
 
 ```console
-$ make install            # builds and copies to ~/.local/bin/sshc
+$ echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.bashrc    # or ~/.zshrc
 ```
 
-On Windows, build with `go build .` and put `sshc.exe` in a directory on your
-`PATH`. sshc uses the OpenSSH client that ships with Windows 10 and 11.
+Or, from a clone of this repository, `make install` builds it and copies it to
+`~/.local/bin`.
 
-Requires OpenSSH 8.5 or newer (`ssh -V`).
+**Windows** (PowerShell)
+
+```powershell
+go install github.com/W-Industries-Luke/sshc@latest
+sshc --version
+```
+
+The Go installer already puts `%USERPROFILE%\go\bin` on your `PATH`; open a
+new terminal if `sshc` is not found straight away.
+
+> Windows support is new. The Windows build passes its tests in CI, but has
+> seen far less real use than the Linux one - please open an issue if
+> something misbehaves.
+
+### 3. Give your host a short name (optional)
+
+sshc uses your `~/.ssh/config` (`%USERPROFILE%\.ssh\config` on Windows) like
+ssh does, so an alias saves typing the full connection string:
+
+```
+Host w.go-2
+    HostName 203.0.113.7
+    User luke
+    Port 22
+```
+
+### 4. Store the password
+
+For the current terminal only - nothing is written to disk:
+
+```bash
+# bash / zsh
+read -rs SSHC_PASSWORD && export SSHC_PASSWORD
+```
+
+```powershell
+# PowerShell 7
+$env:SSHC_PASSWORD = Read-Host -MaskInput 'Password'
+```
+
+Type the password and press Enter; nothing is shown. To have it available in
+every terminal instead, use the [config file](#config-file).
+
+### 5. Check, then connect
+
+```console
+$ sshc --check w.go-2
+config file: none
+w.go-2 -> 203.0.113.7 (user luke)
+  password from environment variable SSHC_PASSWORD
+$ sshc w.go-2
+```
+
+`--check` does not connect and never prints the password. The first time you
+reach a new host, ssh still asks you to confirm its host key, as always.
 
 ## Usage
 
@@ -210,6 +284,38 @@ What it cannot do:
   password in a batch.
 - sshc adds one `ssh -V` and one `ssh -G` call before connecting (about 10 ms)
   to check the client version and resolve the destination.
+
+## Troubleshooting
+
+**It still asks me for the password.** Run `sshc --check <destination>` with
+the same arguments. If it says "no stored password", the variable is not set
+in this terminal (it does not carry over to new ones) or the config file is
+not where sshc looks - the first line of the output shows which file is in
+use. If a source is listed but you are still prompted, the prompt is probably
+not for that host's login password: it may come from a
+[jump host](#jump-hosts), or be a key passphrase or a one-time code, which sshc
+leaves to you.
+
+**"the stored password for ... was not accepted".** The server rejected it, so
+sshc stopped offering it and let you type. Update the stored password.
+
+**"OpenSSH 8.5 or newer is required".** Upgrade the OpenSSH client. On Windows
+a newer one is available from the
+[Win32-OpenSSH](https://github.com/PowerShell/Win32-OpenSSH) project.
+
+**"config file ... is accessible by other users".** Run the `chmod 600`
+command from the message. sshc will not read passwords from a file that other
+accounts on the machine can open.
+
+**"rsync is not installed, or not on your PATH"** (or `ssh-copy-id`). sshc
+runs the real tool, so it has to be installed.
+
+**`sftp -b` fails with "Permission denied".** See [Notes](#notes): add
+`-o BatchMode=no` before `-b`.
+
+**In a script or cron job it fails instead of prompting.** That is intended:
+with no terminal there is nobody to ask, so a host without a matching stored
+password is a failed login rather than a hang.
 
 ## Development
 
