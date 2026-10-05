@@ -156,6 +156,7 @@ To run sshc:
 | `rsync` | any | `sshc rsync` only |
 | `ssh-copy-id` | any | `sshc ssh-copy-id` only; ships with OpenSSH on Linux and macOS |
 | `secret-tool` (`libsecret-tools`) and a running keyring | any | Linux only, and optional: lets `sshc set` use the encrypted keyring instead of a plain-text file |
+| `curl` | any | `sshc update` and the install scripts only; ships with Windows 10/11 and macOS |
 
 sshc itself is one self-contained executable. It does **not** need `sshpass`,
 `expect`, Python or any other runtime. Supported platforms are Linux, macOS
@@ -165,7 +166,7 @@ To build sshc from source (not needed if you download a release):
 
 | Dependency | Version | Needed for |
 | ---------- | ------- | ---------- |
-| [Go](https://go.dev/dl/) | 1.26 or newer | building; it downloads the two Go modules sshc uses, `golang.org/x/term` and `golang.org/x/sys` |
+| [Go](https://go.dev/dl/) | 1.26 or newer | building; it downloads the Go modules sshc uses, `golang.org/x/term` and `golang.org/x/sys`, plus `golang.org/x/crypto` for the tests only |
 | `make` | any | optional, for the shortcuts in the `Makefile` |
 | Docker | any | optional, only for the end-to-end tests (`make e2e`) |
 
@@ -303,8 +304,9 @@ This puts `sshc` in Go's `bin` folder (`~/go/bin`), which the Go installer
 adds to `PATH` on Windows but usually not on Linux or macOS. From a clone,
 `make install` builds and copies to `~/.local/bin`.
 
-> Windows support is new and has seen far less real use than the Linux
-> build - please open an issue if something misbehaves.
+> sshc is tested on Linux, macOS and Windows on every change, but it is a
+> young project and Windows has seen the least everyday use - please open an
+> issue if something misbehaves.
 
 ### 3. Give your host a short name (optional)
 
@@ -504,7 +506,7 @@ Done: all 3 hosts succeeded.
 ```
 
 Everything before `--` is hosts, everything after is the command. The hosts
-run at the same time (`-j N` limits how many), each line is labelled with the
+run at the same time (`-j N`, or `--jobs N`, limits how many), each line is labelled with the
 host it came from, and the exit status is non-zero if any host failed. ssh
 options placed before the hosts (`sshc each -o ConnectTimeout=5 web1 web2 --
 ...`) apply to all of them.
@@ -528,7 +530,8 @@ $ sshc run -d deploy.example.com -- ./deploy.sh
 Stored key passphrases and host-specific passwords are used automatically.
 The active login password is the exception: sshc cannot see which host the
 program will connect to, so it is only offered to hosts you name with `-d`
-(by the name the server is reached under), never to whatever happens to ask.
+(`--dest`, by the name the server is reached under), never to whatever
+happens to ask.
 
 ### Unlocking a key for everything: `sshc ssh-add`
 
@@ -642,8 +645,9 @@ Add-Content $PROFILE 'sshc --shell-init powershell | Out-String | Invoke-Express
 If new PowerShell windows then say that running scripts is disabled, allow
 your own profile with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 Open a new terminal afterwards. `sshc --shell-init` prints the hook if you
-want to read it first; all it does is hand `sshc set` and `sshc unset` to the
-real program and apply the one variable change it asks for.
+want to read it first; apart from completion, all it does is hand `sshc set`, `sshc unset` and
+`sshc use` to the real program and apply the one variable change it asks
+for.
 
 #### Without the hook
 
@@ -684,9 +688,8 @@ terminal, in the place your operating system provides for exactly this:
 | Linux | the Secret Service keyring (GNOME Keyring, KWallet, KeePassXC) | `secret-tool` from `libsecret-tools`, and a keyring running in your session |
 
 There the secret is encrypted and tied to your login, and it is never written
-to a file sshc owns. The Linux store has been used end to end; the Windows
-and macOS ones are newer and so far covered mainly by automated tests, so
-please open an issue if one misbehaves.
+to a file sshc owns. All three are exercised by the automated tests on every change, with a
+real login through each on Linux, Windows and macOS.
 
 Which option you give decides what is saved:
 
