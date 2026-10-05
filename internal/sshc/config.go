@@ -218,7 +218,9 @@ func cmdInit() int {
 		warnf("%v", err)
 		return 1
 	}
-	fmt.Printf("Created %s\n", target)
+	u := newUI(os.Stdout)
+	u.say("Created %s", target)
+	u.flush()
 	return 0
 }
 

@@ -77,6 +77,6 @@ func installShellHook() string {
 	return "Optional: to use \"sshc set --session\", load the shell hook from your PowerShell profile:\n" +
 		"    if (!(Test-Path $PROFILE)) { New-Item -Force -ItemType File $PROFILE | Out-Null }\n" +
 		"    Add-Content $PROFILE '" + hookLine("powershell") + "'\n" +
-		"  If new windows then report that running scripts is disabled, allow your own profile with:\n" +
+		"If new windows then report that running scripts is disabled, allow your own profile with:\n" +
 		"    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"
 }

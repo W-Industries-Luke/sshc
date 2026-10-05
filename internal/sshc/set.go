@@ -142,6 +142,7 @@ func readNewPassword(what string) (string, error) {
 	}
 	defer in.Close()
 	defer out.Close()
+	lastBlank = false
 	ask := func(label string) (string, error) {
 		fmt.Fprint(out, label)
 		b, err := term.ReadPassword(int(in.Fd()))
@@ -178,6 +179,7 @@ func clearScreen(w *os.File) {
 	}
 	enableVT(w)
 	fmt.Fprint(w, "\x1b[H\x1b[2J\x1b[3J")
+	lastBlank = false
 }
 
 // deleteConfigValue removes key from section, and the section header with it
@@ -389,8 +391,8 @@ func (t target) section(cfg *config) (section, profile string) {
 
 // hookMissing explains that --session cannot work in this terminal.
 func hookMissing() int {
-	warnf("--session needs the sshc shell hook, which is not loaded in this terminal.")
-	fmt.Fprintf(os.Stderr, "  Add this line to your shell's startup file, then open a new terminal:\n    %s\n", hookLine(defaultShellKind()))
+	failf("--session needs the sshc shell hook, which is not loaded in this terminal.",
+		"Add this line to your shell's startup file, then open a new terminal:\n    "+hookLine(defaultShellKind()))
 	return 1
 }
 
@@ -467,7 +469,8 @@ func cmdSet(args []string) int {
 		return 1
 	}
 
-	var where, note string
+	var where string
+	var notes []string
 	if t.session {
 		code, _ := emitAssignment(emit, t.envName(), secret)
 		fmt.Println(code)
@@ -489,7 +492,7 @@ func cmdSet(args []string) int {
 		switch {
 		case t.plain || storeErr != nil:
 			if storeErr != nil && !t.plain {
-				note = fmt.Sprintf("Note: no credential store is available here (%v).", storeErr)
+				notes = append(notes, fmt.Sprintf("Note: no credential store is available here (%v).", storeErr))
 			}
 			// Do not leave an older copy behind in the store.
 			if st != nil {
@@ -498,8 +501,8 @@ func cmdSet(args []string) int {
 			where = fmt.Sprintf("%s of [%s], in plain text in %s", what, section, cfgFile)
 		default:
 			if err := st.set(storeKey(section, what), secret); err != nil {
-				warnf("could not save to %s: %v", st.name(), err)
-				fmt.Fprintln(os.Stderr, "  Nothing was changed. Add --plain to keep it in the config file instead.")
+				failf(fmt.Sprintf("could not save to %s: %v", st.name(), err),
+					"Nothing was changed. Add --plain to keep it in the config file instead.")
 				return 1
 			}
 			inFile = storeMarker
@@ -511,22 +514,23 @@ func cmdSet(args []string) int {
 			return 1
 		}
 		if envName := "SSHC_" + strings.ToUpper(what); t.host == "" && t.key == "" && os.Getenv(envName) != "" {
-			note = strings.TrimSpace(note + "\n  Note: " + envName + " is set in this shell and takes precedence here.")
+			notes = append(notes, "Note: "+envName+" is set in this shell and takes precedence here.")
 		}
 	}
 
 	if v, _ := cfg.get("", "clear_on_set"); t.haveValue && t.clear && !isNo(v) {
 		clearScreen(out)
 	}
-	fmt.Fprintln(out, "Updated!")
-	fmt.Fprintln(out, "  "+where)
-	if note != "" {
-		fmt.Fprintln(out, "  "+note)
+	u := newUI(out)
+	u.say("Updated!")
+	u.say("%s", where)
+	for _, note := range notes {
+		u.say("%s", note)
 	}
 	if t.haveValue {
-		fmt.Fprintf(out, "  Note: a %s typed as an argument stays in your shell history.\n", what)
-		fmt.Fprintln(out, "  Leave the value off to type it hidden instead.")
+		u.say("Note: a %s typed as an argument stays in your shell history.\nLeave the value off to type it hidden instead.", what)
 	}
+	u.flush()
 	return 0
 }
 
@@ -562,8 +566,10 @@ func cmdUnset(args []string) int {
 			return hookMissing()
 		}
 		fmt.Println(code)
-		fmt.Fprintln(out, "Removed!")
-		fmt.Fprintf(out, "  %s is no longer set in this terminal.\n", t.envName())
+		u := newUI(out)
+		u.say("Removed!")
+		u.say("%s is no longer set in this terminal.", t.envName())
+		u.flush()
 		return 0
 	}
 
@@ -601,8 +607,10 @@ func cmdUnset(args []string) int {
 		warnf("%v", err)
 		return 1
 	}
-	fmt.Fprintln(out, "Removed!")
-	fmt.Fprintf(out, "  %s of [%s]\n", what, section)
+	u := newUI(out)
+	u.say("Removed!")
+	u.say("%s of [%s]", what, section)
+	u.flush()
 	return 0
 }
 
@@ -622,20 +630,21 @@ func cmdList(args []string) int {
 		return 1
 	}
 	st, storeErr := systemStore()
-	if cfgFile == "" {
-		fmt.Println("config file: none")
-	} else {
-		fmt.Println("config file:", cfgFile)
+	u := newUI(os.Stdout)
+	head := "config file: none"
+	if cfgFile != "" {
+		head = "config file: " + cfgFile
 	}
 	if storeErr != nil {
-		fmt.Printf("credential store: not available (%v)\n", storeErr)
+		head += fmt.Sprintf("\ncredential store: not available (%v)", storeErr)
 	} else {
-		fmt.Println("credential store:", st.name())
+		head += "\ncredential store: " + st.name()
 	}
 	r := newResolver(cfg, nil)
 	if p := r.activeProfile(); p != "" {
-		fmt.Println("active profile:", p)
+		head += "\nactive profile: " + p
 	}
+	u.say("%s", head)
 
 	var rows []string
 	if cfg != nil {
@@ -660,12 +669,10 @@ func cmdList(args []string) int {
 		}
 	}
 	sort.Strings(rows)
-	fmt.Println()
 	if len(rows) == 0 {
-		fmt.Println("Nothing is stored.")
+		u.say("Nothing is stored.")
 	} else {
-		fmt.Println("Stored:")
-		fmt.Println(strings.Join(rows, "\n"))
+		u.say("Stored:\n%s", strings.Join(rows, "\n"))
 	}
 
 	var vars []string
@@ -678,8 +685,8 @@ func cmdList(args []string) int {
 	}
 	if len(vars) > 0 {
 		sort.Strings(vars)
-		fmt.Println("\nSet in this terminal (these take precedence):")
-		fmt.Println(strings.Join(vars, "\n"))
+		u.say("Set in this terminal (these take precedence):\n%s", strings.Join(vars, "\n"))
 	}
+	u.flush()
 	return 0
 }

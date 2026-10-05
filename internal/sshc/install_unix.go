@@ -109,5 +109,5 @@ func installShellHook() string {
 		}
 	}
 	return "Could not set up the shell hook for \"sshc set --session\": " + err.Error() +
-		"\n  Add this line to your shell's startup file yourself:\n    " + hookLine(kind)
+		"\nAdd this line to your shell's startup file yourself:\n    " + hookLine(kind)
 }

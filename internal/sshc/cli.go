@@ -23,7 +23,7 @@ import (
 
 const (
 	prog    = "sshc"
-	version = "0.3.1"
+	version = "0.3.2"
 )
 
 const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
@@ -81,8 +81,21 @@ sshc/sshc.conf in your user config directory. On Linux and macOS it must be
 private to you (chmod 600).
 `
 
+// warnf reports a problem on stderr.
 func warnf(format string, a ...any) {
-	fmt.Fprintf(os.Stderr, prog+": "+format+"\n", a...)
+	u := newUI(os.Stderr)
+	u.say(prog+": "+format, a...)
+	u.flush()
+}
+
+// failf reports a problem together with what to do about it.
+func failf(problem string, advice ...string) {
+	u := newUI(os.Stderr)
+	u.say("%s: %s", prog, problem)
+	for _, a := range advice {
+		u.say("%s", a)
+	}
+	u.flush()
 }
 
 // debugf traces what sshc decides when $SSHC_DEBUG is set. It never prints a

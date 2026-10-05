@@ -1,7 +1,6 @@
 package sshc
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -114,15 +113,17 @@ func cmdInstall(args []string) int {
 		return 1
 	}
 
+	u := newUI(os.Stdout)
+	defer u.flush()
 	target := filepath.Join(dir, exeName())
 	if sameFile(self, target) {
-		fmt.Printf("%s is already installed at %s\n", prog, target)
+		u.say("%s is already installed at %s", prog, target)
 	} else {
 		if err := copyFile(self, target, 0o755); err != nil {
 			warnf("could not install to %s: %v", target, err)
 			return 1
 		}
-		fmt.Printf("Installed %s %s to %s\n", prog, version, target)
+		u.say("Installed %s %s to %s", prog, version, target)
 
 		// The config file is looked up next to the executable, so one that
 		// sits beside this copy has to come along or it would stop applying.
@@ -131,7 +132,7 @@ func cmdInstall(args []string) int {
 		switch {
 		case !exists(oldCfg):
 		case exists(newCfg):
-			fmt.Printf("Kept the config file already at %s\n  (the one at %s is not used by the installed copy)\n", newCfg, oldCfg)
+			u.say("Kept the config file already at %s\n(the one at %s is not used by the installed copy)", newCfg, oldCfg)
 		default:
 			err := os.Rename(oldCfg, newCfg)
 			if err != nil {
@@ -140,29 +141,26 @@ func cmdInstall(args []string) int {
 				}
 			}
 			if err != nil {
-				warnf("could not move %s to %s: %v", oldCfg, newCfg, err)
+				u.say("Warning: could not move %s to %s: %v", oldCfg, newCfg, err)
 			} else {
-				fmt.Printf("Moved your config file to %s\n", newCfg)
+				u.say("Moved your config file to %s", newCfg)
 			}
 		}
 	}
 
 	status := 0
 	if onPath(dir) {
-		fmt.Printf("%s is already on your PATH.\n", dir)
+		u.say("%s is already on your PATH.", dir)
 	} else if changed, err := addToUserPath(dir); err != nil {
-		warnf("could not add %s to your PATH: %v", dir, err)
-		fmt.Printf("Add it yourself, then open a new terminal.\n")
+		u.say("Warning: could not add %s to your PATH: %v\nAdd it yourself, then open a new terminal.", dir, err)
 		status = 1
 	} else {
-		fmt.Printf("Added %s to your PATH (%s).\n", dir, changed)
+		u.say("Added %s to your PATH (%s).", dir, changed)
 	}
-	fmt.Println(installShellHook())
+	u.say("%s", installShellHook())
 	if other := shadowingCopy(target); other != "" {
-		fmt.Printf("\nWarning: another copy of %s comes first on your PATH and will be the one that runs:\n    %s\n", prog, other)
-		fmt.Println("  Remove one of the two. If that copy came from a package manager, either")
-		fmt.Println("  uninstall it there or upgrade it there and delete this one.")
+		u.say("Warning: another copy of %s comes first on your PATH and will be the one that runs:\n    %s\nRemove one of the two. If that copy came from a package manager, either\nuninstall it there or upgrade it there and delete this one.", prog, other)
 	}
-	fmt.Printf("Open a new terminal, then run: %s --version\n", prog)
+	u.say("Open a new terminal, then run: %s --version", prog)
 	return status
 }

@@ -193,7 +193,7 @@ sshc unset -H kbd && ! secret-tool lookup service sshc account 'host kbd/passwor
 KEYRING
 	check "credential store: set, connect, unset" 0 "logged-in" dbus-run-session -- bash keyring.sh
 	check "credential store keeps it out of the file" 0 "password = @credential-store" \
-		sh -c "dbus-run-session -- bash keyring.sh | head -4"
+		dbus-run-session -- bash keyring.sh
 else
 	echo "skip credential store (needs gnome-keyring, libsecret-tools and dbus)"
 fi

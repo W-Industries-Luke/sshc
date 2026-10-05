@@ -509,7 +509,9 @@ Add `-P NAME` to the first two to save into a profile other than the active
 one. Each command asks for the value hidden; you can also put it at the end of
 the command (`sshc set 'correct horse'`), with the caveats below.
 `sshc unset` takes the same options and removes the entry, and `sshc list`
-shows everything that is stored:
+shows everything that is stored. (On a terminal sshc colours the key words of
+its messages; set `NO_COLOR=1` to turn that off. Piped output is always
+plain.)
 
 ```console
 $ sshc list

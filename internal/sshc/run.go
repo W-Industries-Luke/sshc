@@ -154,10 +154,11 @@ func cmdCheck(args []string) int {
 		warnf("%v", err)
 		return 1
 	}
+	u := newUI(os.Stdout)
 	if cfgPath == "" {
-		fmt.Println("config file: none")
+		u.say("config file: none")
 	} else {
-		fmt.Println("config file:", cfgPath)
+		u.say("config file: %s", cfgPath)
 	}
 	if err := checkSSHVersion(); err != nil {
 		warnf("%v", err)
@@ -170,19 +171,18 @@ func cmdCheck(args []string) int {
 	}
 	r := newResolver(cfg, dests)
 	for _, d := range dests {
+		lines := []string{fmt.Sprintf("%s -> %s (user %s)", d.alias, d.hostname, d.user)}
 		if d.alias == d.hostname {
-			fmt.Printf("%s (user %s)\n", d.alias, d.user)
-		} else {
-			fmt.Printf("%s -> %s (user %s)\n", d.alias, d.hostname, d.user)
+			lines[0] = fmt.Sprintf("%s (user %s)", d.alias, d.user)
 		}
 		password, from, note := r.lookup(d.user, d.hostname)
 		switch {
 		case password != "":
-			fmt.Printf("  password from %s\n", from)
+			lines = append(lines, "  password from "+from)
 		case note != "":
-			fmt.Printf("  no stored password (%s); you would be prompted\n", note)
+			lines = append(lines, fmt.Sprintf("  no stored password (%s); you would be prompted", note))
 		default:
-			fmt.Println("  no stored password; you would be prompted")
+			lines = append(lines, "  no stored password; you would be prompted")
 		}
 		for _, key := range d.keys {
 			file := key
@@ -195,13 +195,15 @@ func cmdCheck(args []string) int {
 				continue
 			}
 			if passphrase, from, note := r.lookupPassphrase(key); passphrase != "" {
-				fmt.Printf("  key %s: passphrase from %s\n", key, from)
+				lines = append(lines, fmt.Sprintf("  key %s: passphrase from %s", key, from))
 			} else if note != "" {
-				fmt.Printf("  key %s: no usable passphrase (%s)\n", key, note)
+				lines = append(lines, fmt.Sprintf("  key %s: no usable passphrase (%s)", key, note))
 			} else {
-				fmt.Printf("  key %s: no stored passphrase; you would be prompted if it has one\n", key)
+				lines = append(lines, fmt.Sprintf("  key %s: no stored passphrase; you would be prompted if it has one", key))
 			}
 		}
+		u.say("%s", strings.Join(lines, "\n"))
 	}
+	u.flush()
 	return 0
 }
