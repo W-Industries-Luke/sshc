@@ -44,6 +44,31 @@ sshc is a thin wrapper around the OpenSSH client you already have. It is a
 single executable with no runtime dependencies - no `sshpass`, no `expect` -
 and runs on Linux, macOS and Windows.
 
+What it does:
+
+- **Answers the prompt for you** in `ssh`, `scp`, `sftp`, `rsync` and
+  `ssh-copy-id`, for a login password or an SSH
+  [key passphrase](#password-or-passphrase), with every option of those tools
+  still working.
+- **Keeps the secret where you choose**: for
+  [this terminal only](#environment-variables), encrypted in your system's
+  [credential store](#the-credential-store), or not at all - fetched from
+  [1Password, Bitwarden, `pass` or any other password manager](#password-managers)
+  when it is needed.
+- **Works with programs that call ssh themselves**: `sshc run git push`,
+  `sshc run ansible-playbook ...` - see
+  [`sshc run`](#git-ansible-and-other-programs-sshc-run).
+- **Unlocks your key once for everything** with
+  [`sshc ssh-add`](#unlocking-a-key-for-everything-sshc-ssh-add), so plain
+  `ssh` and `git` stop asking too.
+- **Runs a command on [several hosts at once](#several-hosts-at-once)**:
+  `sshc each web1 web2 -- uptime`.
+- **Finds your hosts**: a [host picker](#picking-a-host) when you run `sshc`
+  on its own, and Tab completion of host names in bash, zsh, fish and
+  PowerShell.
+- **Installs in CI** as a [GitHub Action](#github-actions), for deploying to
+  hosts that only take a password.
+
 > Where you can, prefer an SSH key with
 > [`ssh-agent`](#a-safer-alternative-ssh-agent): it gives you the same
 > no-prompt logins with no stored secret at all. sshc is for everything else.
