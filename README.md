@@ -33,7 +33,9 @@ curl -fsSL https://raw.githubusercontent.com/W-Industries-Luke/sshc/main/install
 brew install W-Industries-Luke/tap/sshc
 ```
 
-Then open a new terminal and run `sshc -v`. A `winget` package has been
+Then run `sshc -v`. (After a first install on macOS or Linux, open a new
+terminal first, or run the one command the installer prints; the Windows
+script updates the window it runs in.) A `winget` package has been
 submitted and is awaiting Microsoft's review; until it is accepted,
 `winget install` will not find sshc. Manual downloads, building from source
 and what each method does are covered in [Getting started](#2-install-sshc).
@@ -523,7 +525,8 @@ $ sshc w.go-2                 # lands in /var/www, with the venv active
 `-d` is `--dir` and `-e` is `--entry`; both can be given in one command.
 `sshc unset -H w.go-2 -d` (or `-e`) removes one, `sshc list` shows them, and
 `sshc check w.go-2` shows the exact command a login would run. To log in
-without them once, put `--no-entry` first: `sshc --no-entry w.go-2`.
+without them once, put `--no-entry` first: `sshc --no-entry w.go-2`. Setting
+`SSHC_NO_ENTRY=1` does the same for everything run in that terminal.
 
 They apply **only to an interactive login**: plain `sshc w.go-2` typed at a
 terminal, with nothing after the host. Everything else is left exactly as
@@ -1018,7 +1021,7 @@ What it cannot do:
 
 - **Protect a secret from programs running as you.** sshc hands the secret to
   ssh without asking, so other software under your account can obtain it the
-  same way - whichever of the three places it is kept in. The credential
+  same way - wherever it is kept. The credential
   store protects against someone reading your disk, a backup or another
   account on the machine, not against malware in your own session.
 - An `entry` command is run on the host, as you, at every interactive login
@@ -1147,6 +1150,22 @@ the server's host key as shown rather than turning host key checking off -
 there is nobody to answer the "are you sure" question in a workflow.
 
 ## Notes
+
+Environment variables sshc reads:
+
+| Variable | Effect |
+| -------- | ------ |
+| `SSHC_PASSWORD`, `SSHC_PASSPHRASE` | the active login password and key passphrase |
+| `SSHC_PASSWORD_<HOST>`, `SSHC_PASSPHRASE_<KEYFILE>` | the same, for one host or one key |
+| `SSHC_PROFILE` | the active profile for this terminal (`sshc use` sets it) |
+| `SSHC_CONFIG` | the config file to use |
+| `SSHC_CREDENTIAL_STORE=off` | do not use the system credential store |
+| `SSHC_NO_PROMPT=1` | never ask on the terminal; fail instead (for scripts) |
+| `SSHC_NO_ENTRY=1` | skip a host's start directory and entry command |
+| `SSHC_DEBUG=1` | print what sshc decides at each step, never a secret |
+| `NO_COLOR=1` | plain output without colour |
+
+Other things worth knowing:
 
 - `sftp -b batchfile` turns on ssh's batch mode, which disables password and
   passphrase prompts altogether. Add `-o BatchMode=no` before `-b` to use a
