@@ -1,17 +1,17 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 
 PackageIdentifier: LukeWeaver.sshc
-PackageVersion: 0.3.0
+PackageVersion: 0.3.1
 InstallerType: portable
 Commands:
 - sshc
 ReleaseDate: 2026-10-05
 Installers:
 - Architecture: x64
-  InstallerUrl: https://github.com/W-Industries-Luke/sshc/releases/download/v0.3.0/sshc-windows-amd64.exe
-  InstallerSha256: 26F56A64BEC41CEDCF2B53550D46FFFF4A343D175B3BDA99A4B1CBD696A1588B
+  InstallerUrl: https://github.com/W-Industries-Luke/sshc/releases/download/v0.3.1/sshc-windows-amd64.exe
+  InstallerSha256: 32F5D0980249C27AA06D5E1B6B6073A67385B43A21414F681908B022D6A51133
 - Architecture: arm64
-  InstallerUrl: https://github.com/W-Industries-Luke/sshc/releases/download/v0.3.0/sshc-windows-arm64.exe
-  InstallerSha256: C3389E871C33C803B1E0E5860DDA33D5CD20FD4F1D0A22A5B9F7462CFC8BEEE5
+  InstallerUrl: https://github.com/W-Industries-Luke/sshc/releases/download/v0.3.1/sshc-windows-arm64.exe
+  InstallerSha256: F3A8D6B6BD5CCFA475EF86B60025EC3F4CA3F1FC7ABD3E75539B922DB0F7B5D3
 ManifestType: installer
 ManifestVersion: 1.12.0

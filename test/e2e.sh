@@ -210,6 +210,11 @@ check "unset -s through the hook"    0 "[]" \
 check "set --session writes no file"  1 "" \
 	env "SSHC_CONFIG=$work/none.conf" bash -c 'eval "$(sshc --shell-init bash)"; sshc set --session x 2>/dev/null; test -e "$SSHC_CONFIG"'
 check "set --session without the hook" 1 "needs the sshc shell hook" sshc set --session x
+mkdir -p shadow && printf '#!/bin/sh\necho old\n' >shadow/sshc && chmod +x shadow/sshc
+check "--install warns about an older copy on PATH" 0 "another copy of sshc comes first" \
+	env "HOME=$work/fakehome" SHELL=/bin/bash "PATH=$work/shadow:$work/fakehome/.local/bin:$PATH" fakehome/.local/bin/sshc --install
+check "--install is quiet when it is first on PATH" 0 "already on your PATH" \
+	env "HOME=$work/fakehome" SHELL=/bin/bash "PATH=$work/fakehome/.local/bin:$work/shadow:$PATH" fakehome/.local/bin/sshc --install
 check "--install twice is harmless"  0 "already installed" inst fakehome/.local/bin/sshc --install
 check "PATH line is not duplicated"  0 "1"        grep -c 'export PATH' fakehome/.bashrc
 check "--install sees PATH already set" 0 "already on your PATH" \

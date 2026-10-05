@@ -63,6 +63,26 @@ func onPath(dir string) bool {
 	return false
 }
 
+// shadowingCopy returns another sshc that the shell would run instead of
+// target because its directory comes earlier on PATH - typically a copy from
+// a package manager or an earlier manual install.
+func shadowingCopy(target string) string {
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		candidate := filepath.Join(dir, exeName())
+		if fi, err := os.Stat(candidate); err != nil || fi.IsDir() {
+			continue
+		}
+		if sameFile(candidate, target) {
+			return ""
+		}
+		return candidate
+	}
+	return ""
+}
+
 // cmdInstall copies the running executable to a per-user directory and puts
 // that directory on the user's PATH. It needs no administrator rights.
 func cmdInstall(args []string) int {
@@ -138,6 +158,11 @@ func cmdInstall(args []string) int {
 		fmt.Printf("Added %s to your PATH (%s).\n", dir, changed)
 	}
 	fmt.Println(installShellHook())
+	if other := shadowingCopy(target); other != "" {
+		fmt.Printf("\nWarning: another copy of %s comes first on your PATH and will be the one that runs:\n    %s\n", prog, other)
+		fmt.Println("  Remove one of the two. If that copy came from a package manager, either")
+		fmt.Println("  uninstall it there or upgrade it there and delete this one.")
+	}
 	fmt.Printf("Open a new terminal, then run: %s --version\n", prog)
 	return status
 }
