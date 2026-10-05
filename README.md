@@ -15,6 +15,29 @@ and runs on Linux, macOS and Windows.
 > SSH keys are still the better answer wherever you are allowed to use them.
 > sshc is for the hosts where you are not.
 
+## Contents
+
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Getting started](#getting-started)
+  - [1. Check your OpenSSH](#1-check-your-openssh)
+  - [2. Install sshc](#2-install-sshc)
+  - [3. Give your host a short name (optional)](#3-give-your-host-a-short-name-optional)
+  - [4. Store the password](#4-store-the-password)
+  - [5. Check, then connect](#5-check-then-connect)
+- [Usage](#usage)
+  - [Moving a host to a key](#moving-a-host-to-a-key)
+- [Storing passwords](#storing-passwords)
+  - [Environment variables (preferred)](#environment-variables-preferred)
+  - [Config file](#config-file)
+  - [Which password is used](#which-password-is-used)
+  - [Jump hosts](#jump-hosts)
+- [Safety](#safety)
+- [Notes](#notes)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [License](#license)
+
 ## How it works
 
 OpenSSH has a hook, `SSH_ASKPASS`, for a program that answers its prompts.
@@ -24,6 +47,28 @@ the password prompt when ssh calls back. Because ssh does the asking:
 - every option of the wrapped tool works, because sshc never rewrites your arguments;
 - `~/.ssh/config` aliases, `ProxyJump`, port forwards, etc. behave as usual;
 - the password is never on a command line, where `ps` would show it.
+
+## Requirements
+
+To run sshc:
+
+| Dependency | Version | Needed for |
+| ---------- | ------- | ---------- |
+| OpenSSH client (`ssh`, `scp`, `sftp`) | 8.5 or newer | everything; preinstalled on Linux, macOS and Windows 10/11 |
+| `rsync` | any | `sshc rsync` only |
+| `ssh-copy-id` | any | `sshc ssh-copy-id` only; ships with OpenSSH on Linux and macOS |
+
+sshc itself is one self-contained executable. It does **not** need `sshpass`,
+`expect`, Python or any other runtime. Supported platforms are Linux, macOS
+and Windows, on x86-64 and ARM64.
+
+To build sshc:
+
+| Dependency | Version | Needed for |
+| ---------- | ------- | ---------- |
+| [Go](https://go.dev/dl/) | 1.26 or newer | building; it downloads the two Go modules sshc uses, `golang.org/x/term` and `golang.org/x/sys` |
+| `make` | any | optional, for the shortcuts in the `Makefile` |
+| Docker | any | optional, only for the end-to-end tests (`make e2e`) |
 
 ## Getting started
 
