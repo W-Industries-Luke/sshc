@@ -1,13 +1,43 @@
 # sshc
 
-`ssh`, `scp`, `sftp`, `rsync` and `ssh-copy-id` that type your stored password
-- or the passphrase of your SSH key - for you.
+`ssh`, `scp`, `sftp`, `rsync` and `ssh-copy-id` that type your stored
+password, or the passphrase of your SSH key, for you.
 
 ```console
 $ sshc set                    # save it once, typed hidden
 $ sshc w.go-2                 # no prompt
 $ sshc scp -r ./site w.go-2:/var/www
 ```
+
+## Install
+
+**Windows** (PowerShell) - any one of:
+
+```powershell
+# installer script: downloads, verifies and installs the latest release
+irm https://raw.githubusercontent.com/W-Industries-Luke/sshc/main/install.ps1 | iex
+
+# Scoop
+scoop bucket add sshc https://github.com/W-Industries-Luke/scoop-bucket
+scoop install sshc
+```
+
+**macOS and Linux** - any one of:
+
+```bash
+# installer script: downloads, verifies and installs the latest release
+curl -fsSL https://raw.githubusercontent.com/W-Industries-Luke/sshc/main/install.sh | sh
+
+# Homebrew
+brew install W-Industries-Luke/tap/sshc
+```
+
+Then open a new terminal and run `sshc --version`. A `winget` package is
+prepared but not yet in Microsoft's catalog. Manual downloads, building from
+source and what each method does are covered in
+[Getting started](#2-install-sshc).
+
+## About
 
 sshc is a thin wrapper around the OpenSSH client you already have. It is a
 single executable with no runtime dependencies - no `sshpass`, no `expect` -
@@ -19,6 +49,8 @@ and runs on Linux, macOS and Windows.
 
 ## Contents
 
+- [Install](#install)
+- [About](#about)
 - [Password or passphrase?](#password-or-passphrase)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
@@ -112,10 +144,36 @@ on Windows, enable it under *Settings > System > Optional features*.
 
 ### 2. Install sshc
 
-Installing is two steps: download the one file for your system, then run it
-once with `--install`. That copies it to a per-user folder and puts that
-folder on your `PATH`, so that from then on you can type `sshc` anywhere. No
-administrator rights are needed.
+Pick one method. All of them leave you with an `sshc` command on your `PATH`
+and need no administrator rights.
+
+**Installer script** - nothing else required. It downloads the right file for
+your machine from the latest release, checks it against the release's
+`SHA256SUMS`, and runs `sshc --install` (described below).
+
+```powershell
+irm https://raw.githubusercontent.com/W-Industries-Luke/sshc/main/install.ps1 | iex      # Windows
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/W-Industries-Luke/sshc/main/install.sh | sh  # macOS, Linux
+```
+
+**Package manager** - if you already use one. Upgrades then come through it
+(`scoop update sshc`, `brew upgrade sshc`).
+
+```powershell
+scoop bucket add sshc https://github.com/W-Industries-Luke/scoop-bucket   # Windows, Scoop
+scoop install sshc
+```
+
+```bash
+brew install W-Industries-Luke/tap/sshc                                   # macOS or Linux, Homebrew
+```
+
+**Manual download** - download the one file for your system, then run it once
+with `--install`. That copies it to a per-user folder and puts that folder on
+your `PATH`.
 
 Download from the
 [latest release](https://github.com/W-Industries-Luke/sshc/releases/latest):
