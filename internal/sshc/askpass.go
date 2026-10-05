@@ -16,6 +16,8 @@ const (
 	envState  = "SSHC_ASKPASS_STATE"  // private scratch directory; also marks askpass mode
 	envDests  = "SSHC_ASKPASS_DESTS"  // destinations named on the command line
 	envConfig = "SSHC_ASKPASS_CONFIG" // config file in use, may be empty
+	envTool   = "SSHC_ASKPASS_TOOL"   // the tool sshc was asked to run
+	envNoTTY  = "SSHC_ASKPASS_NOTTY"  // set when nobody can be asked on the terminal
 )
 
 // Only two password prompt shapes are answered automatically, and in both the
@@ -37,6 +39,10 @@ var (
 // local client and names a local file; a server cannot send it, because
 // anything a server sends arrives behind the "(user@host) " prefix.
 var rePassphrase = regexp.MustCompile(`^Enter passphrase for key '(.+)': ?$`)
+
+// ssh-add words its prompt differently from ssh. Like the one above it is
+// written by a local program and cannot come from a server.
+var reAddPassphrase = regexp.MustCompile(`^Enter passphrase for (.+?)(?: \(will confirm each use\))?: ?$`)
 
 var reUnsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
@@ -61,6 +67,10 @@ func isAskpassCall(args []string) bool {
 // askTTY puts the prompt to the human on the terminal and relays the answer
 // to ssh. Without a terminal it fails, and ssh treats that as no answer.
 func askTTY(prompt string, echo bool) int {
+	// Several connections at once ("sshc each") cannot share the terminal.
+	if os.Getenv(envNoTTY) != "" {
+		return 1
+	}
 	in, out, err := openTTY()
 	if err != nil {
 		return 1
@@ -102,7 +112,11 @@ func askpassMain(prompt string) int {
 	// anything else unrecognised are not ours to answer.
 	var what, id string
 	var find func(*resolver) (secret, from, note string)
-	if m := rePassphrase.FindStringSubmatch(prompt); m != nil {
+	m := rePassphrase.FindStringSubmatch(prompt)
+	if m == nil {
+		m = reAddPassphrase.FindStringSubmatch(prompt)
+	}
+	if m != nil {
 		what, id = "passphrase for key "+m[1], "key."+m[1]
 		find = func(r *resolver) (string, string, string) { return r.lookupPassphrase(m[1]) }
 		debugf("prompt is for the passphrase of key %q", m[1])
@@ -112,7 +126,13 @@ func askpassMain(prompt string) int {
 		debugf("prompt is for user %q at host %q; destinations: %q", user, host, os.Getenv(envDests))
 	} else {
 		debugf("not a prompt sshc answers; asking on the terminal")
-		return askTTY(prompt, false)
+		// ssh-add's second ask has its own wording.
+		if strings.HasPrefix(prompt, "Bad passphrase, try again") {
+			warnf("the stored passphrase was not accepted")
+		}
+		// git asks for an https user name through the same hook; that one
+		// should be visible while it is typed.
+		return askTTY(prompt, strings.HasPrefix(strings.ToLower(prompt), "username"))
 	}
 
 	// A stored secret is offered once per connection. If ssh asks again it

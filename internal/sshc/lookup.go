@@ -41,7 +41,9 @@ func decodeDests(s string) []dest {
 
 // resolver finds the stored password for a prompt.
 type resolver struct {
-	store   secretStore // nil until first needed; see openStore
+	store   secretStore     // nil until first needed; see openStore
+	vars    map[byte]string // %h, %u, %k for a configured command
+	dryRun  bool            // describe a configured command instead of running it
 	cfg     *config
 	dests   []dest
 	environ []string // "KEY=value" pairs
@@ -99,6 +101,16 @@ func (r *resolver) hasEnvPasswords() bool {
 	return false
 }
 
+// notRun stands for a secret that a dry-run resolver did not fetch.
+const notRun = "(command not run)"
+
+// has reports whether section holds key, as a value or as a command.
+func (r *resolver) has(section, key string) bool {
+	v, _ := r.cfg.get(section, key)
+	c, _ := r.cfg.get(section, key+"_command")
+	return v != "" || c != ""
+}
+
 func (r *resolver) openStore() (secretStore, error) {
 	if r.store != nil {
 		return r.store, nil
@@ -115,7 +127,19 @@ func (r *resolver) openStore() (secretStore, error) {
 func (r *resolver) secret(section, key string) (value, from, note string) {
 	v, _ := r.cfg.get(section, key)
 	if v == "" {
-		return "", "", ""
+		command, _ := r.cfg.get(section, key+"_command")
+		if command == "" {
+			return "", "", ""
+		}
+		from = fmt.Sprintf("[%s], by running %s", section, command)
+		if r.dryRun {
+			return notRun, from, ""
+		}
+		got, err := runSecretCommand(command, r.vars)
+		if err != nil {
+			return "", "", fmt.Sprintf("the %s command of [%s] failed: %v", key, section, err)
+		}
+		return got, from, ""
 	}
 	if v != storeMarker {
 		return v, fmt.Sprintf("[%s] in %s", section, r.cfg.path), ""
@@ -159,6 +183,7 @@ func normKeyPath(p string) string {
 // unlock a local file, so offering the wrong one discloses nothing. The
 // general passphrase is therefore tried for any key.
 func (r *resolver) lookupPassphrase(keyPath string) (passphrase, from, note string) {
+	r.vars = map[byte]string{'k': keyPath}
 	full := normKeyPath(keyPath)
 	base := path.Base(full)
 	if v, name := r.specificEnv(keyEnvPrefix, base); v != "" {
@@ -170,11 +195,12 @@ func (r *resolver) lookupPassphrase(keyPath string) (passphrase, from, note stri
 	if r.cfg != nil {
 		var names []string
 		for k := range r.cfg.entries {
-			if section, key, _ := strings.Cut(k, "\n"); key == "passphrase" && strings.HasPrefix(section, "key ") {
+			if section, key, _ := strings.Cut(k, "\n"); (key == "passphrase" || key == "passphrase_command") && strings.HasPrefix(section, "key ") {
 				names = append(names, strings.TrimPrefix(section, "key "))
 			}
 		}
 		sort.Strings(names)
+		names = compactStrings(names)
 		for _, exact := range []bool{true, false} {
 			for _, name := range names {
 				n := normKeyPath(name)
@@ -211,6 +237,7 @@ func (r *resolver) lookupPassphrase(keyPath string) (passphrase, from, note stri
 // destination from the command line - never to a jump host or anything else
 // that happens to ask.
 func (r *resolver) lookup(user, host string) (password, from, note string) {
+	r.vars = map[byte]string{'h': host, 'u': user}
 	names := []string{}
 	isDest := false
 	for _, d := range r.dests {
@@ -250,8 +277,19 @@ func (r *resolver) lookup(user, host string) (password, from, note string) {
 		return v, from, note
 	}
 	// A profile that only carries a key passphrase is not a mistake.
-	if v, _ := r.cfg.get("profile "+profile, "passphrase"); v != "" {
+	if r.has("profile "+profile, "passphrase") {
 		return "", "", ""
 	}
 	return "", "", fmt.Sprintf("active profile %q has no password in the config file", profile)
+}
+
+// compactStrings removes adjacent duplicates from a sorted slice.
+func compactStrings(s []string) []string {
+	out := s[:0]
+	for i, v := range s {
+		if i == 0 || v != s[i-1] {
+			out = append(out, v)
+		}
+	}
+	return out
 }

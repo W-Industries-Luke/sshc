@@ -19,11 +19,13 @@ package sshc
 import (
 	"fmt"
 	"os"
+
+	"golang.org/x/term"
 )
 
 const (
 	prog    = "sshc"
-	version = "0.3.2"
+	version = "0.4.0"
 )
 
 const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
@@ -31,21 +33,36 @@ const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
        sshc sftp [sftp options] destination
        sshc rsync [rsync options] source ... target
        sshc ssh-copy-id [ssh-copy-id options] destination
+       sshc ssh-add [ssh-add options] [key ...]
 
 Runs the tool and answers its prompt for a login password, or for the
 passphrase of an SSH key, from what you have stored. Everything after the
 optional tool name is handed to that tool unchanged.
 
+Storing secrets:
   sshc set [-s] [-p] [value]    store a password, or with -p a key passphrase:
                                 in your system's credential store, or with -s
                                 for this terminal only ("sshc set -h")
   sshc unset [-s] [-p]          remove one ("sshc unset -h")
   sshc list                     show what is stored and where, not the values
   sshc check [tool] args...     show where the password would come from
-  sshc init                     create a config file template
+
+More ways to connect:
+  sshc                          on its own: pick a host from your ssh config
+  sshc pick                     the same, explicitly
+  sshc hosts                    list the hosts in your ssh config
+  sshc each HOST... -- COMMAND  run a command on several hosts at once
+  sshc run [-d HOST] COMMAND    run any program that uses ssh underneath
+                                (git, ansible, ...) with prompts answered
+  sshc ssh-add [KEY]            unlock a key into ssh-agent, so that plain
+                                ssh, git and the rest need no prompt either
+
+Setup:
   sshc install [directory]      copy sshc to a per-user directory, put it on
                                 your PATH and set up the shell hook
-  sshc shell-init [shell]       print the shell hook that "set -s" needs
+  sshc init                     create a config file template
+  sshc shell-init [shell]       print the shell hook: "set -s" and tab
+                                completion need it
   sshc help | version           also -h and -v, when given on their own
 
 Options of set and unset. Letters combine: "sshc set -sp" stores a key
@@ -55,6 +72,8 @@ passphrase for this terminal only.
   -H, --host NAME       the login password of one host
   -k, --key NAME        the passphrase of one key
   -P, --profile NAME    a profile other than the active one
+  -c, --command CMD     do not store it: run CMD (a password manager) each
+                        time and use what it prints (set only)
   -f, --plain           keep it in the config file, in plain text (set only)
   -n, --no-clear        do not clear the screen afterwards (set only)
   -h, --help            the full help for set or unset
@@ -74,7 +93,8 @@ Key passphrases work the same way: $SSHC_PASSPHRASE_<KEYFILE>, a [key <name>]
 section, $SSHC_PASSPHRASE, then "passphrase =" in the active profile.
 
 Saved entries are listed in the config file; their values are kept in your
-system's credential store, or in the file itself where there is none.
+system's credential store, fetched by a command you name, or - where there is
+no store - in the file itself.
 
 Config file: $SSHC_CONFIG, else sshc.conf next to the sshc executable, else
 sshc/sshc.conf in your user config directory. On Linux and macOS it must be
@@ -108,7 +128,7 @@ func debugf(format string, a ...any) {
 
 func isTool(s string) bool {
 	switch s {
-	case "ssh", "scp", "sftp", "rsync", "ssh-copy-id":
+	case "ssh", "scp", "sftp", "rsync", "ssh-copy-id", "ssh-add":
 		return true
 	}
 	return false
@@ -124,6 +144,10 @@ func Main(args []string) int {
 		debugf("started inside an sshc session, but not as an askpass call: %d args %q", len(args), args)
 	}
 	if len(args) == 0 {
+		// With hosts to choose from and someone to ask, offer them.
+		if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) && len(sshConfigHosts()) > 0 {
+			return cmdPick(nil)
+		}
 		fmt.Print(usageText)
 		return 0
 	}
@@ -163,6 +187,16 @@ func Main(args []string) int {
 		return cmdUnset(args[1:])
 	case "list":
 		return cmdList(args[1:])
+	case "run":
+		return cmdRun(args[1:])
+	case "each":
+		return cmdEach(args[1:])
+	case "hosts":
+		return cmdHosts(args[1:])
+	case "pick":
+		return cmdPick(args[1:])
+	case "--complete":
+		return cmdComplete(args[1:])
 	}
 	tool := "ssh"
 	if isTool(args[0]) {

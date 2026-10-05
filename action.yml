@@ -1,0 +1,62 @@
+name: Set up sshc
+description: >-
+  Install sshc, which runs ssh, scp, sftp and rsync and answers their password
+  or key passphrase prompt from a secret - for deploying to hosts that do not
+  accept the runner's own key.
+branding:
+  icon: terminal
+  color: gray-dark
+inputs:
+  version:
+    description: The sshc release to install, such as 0.4.0. Defaults to the latest.
+    required: false
+    default: latest
+runs:
+  using: composite
+  steps:
+    - name: Install sshc
+      shell: bash
+      env:
+        SSHC_VERSION: ${{ inputs.version }}
+      run: |
+        set -eu
+        case "$RUNNER_OS" in
+          Linux) os=linux; ext= ;;
+          macOS) os=darwin; ext= ;;
+          Windows) os=windows; ext=.exe ;;
+          *) echo "sshc: unsupported runner OS $RUNNER_OS" >&2; exit 1 ;;
+        esac
+        case "$RUNNER_ARCH" in
+          X64) arch=amd64 ;;
+          ARM64) arch=arm64 ;;
+          *) echo "sshc: unsupported runner architecture $RUNNER_ARCH" >&2; exit 1 ;;
+        esac
+        file=sshc-$os-$arch$ext
+        if [ "$SSHC_VERSION" = latest ]; then
+          base=https://github.com/W-Industries-Luke/sshc/releases/latest/download
+        else
+          base=https://github.com/W-Industries-Luke/sshc/releases/download/v${SSHC_VERSION#v}
+        fi
+        dir=$RUNNER_TEMP/sshc-bin
+        mkdir -p "$dir"
+        curl -fsSL --retry 3 -o "$dir/$file" "$base/$file"
+        curl -fsSL --retry 3 -o "$dir/SHA256SUMS" "$base/SHA256SUMS"
+        want=$(awk -v f="$file" '$2 == f { print $1 }' "$dir/SHA256SUMS")
+        if command -v sha256sum >/dev/null 2>&1; then
+          got=$(sha256sum "$dir/$file" | cut -d' ' -f1)
+        else
+          got=$(shasum -a 256 "$dir/$file" | cut -d' ' -f1)
+        fi
+        if [ -z "$want" ] || [ "$want" != "$got" ]; then
+          echo "sshc: checksum mismatch for $file" >&2
+          exit 1
+        fi
+        mv "$dir/$file" "$dir/sshc$ext"
+        rm "$dir/SHA256SUMS"
+        chmod +x "$dir/sshc$ext"
+        if [ "$RUNNER_OS" = Windows ]; then
+          cygpath -w "$dir" >>"$GITHUB_PATH"
+        else
+          echo "$dir" >>"$GITHUB_PATH"
+        fi
+        "$dir/sshc$ext" --version

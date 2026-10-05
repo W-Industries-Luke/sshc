@@ -7,6 +7,7 @@ password, or the passphrase of your SSH key, for you.
 $ sshc set -s                 # type it once, hidden; kept for this terminal only
 $ sshc w.go-2                 # no prompt
 $ sshc scp -r ./site w.go-2:/var/www
+$ sshc each web1 web2 -- uptime
 ```
 
 ## Install
@@ -62,16 +63,22 @@ and runs on Linux, macOS and Windows.
   - [5. Check, then connect](#5-check-then-connect)
 - [Usage](#usage)
   - [sshc's own commands](#sshcs-own-commands)
+  - [Picking a host](#picking-a-host)
+  - [Several hosts at once](#several-hosts-at-once)
+  - [git, ansible and other programs: sshc run](#git-ansible-and-other-programs-sshc-run)
+  - [Unlocking a key for everything: sshc ssh-add](#unlocking-a-key-for-everything-sshc-ssh-add)
   - [Moving a host to a key](#moving-a-host-to-a-key)
 - [Storing passwords and passphrases](#storing-passwords-and-passphrases)
   - [Environment variables](#environment-variables)
     - [The shell hook](#the-shell-hook)
   - [The credential store](#the-credential-store)
+  - [Password managers](#password-managers)
   - [Config file](#config-file)
   - [Which one is used](#which-one-is-used)
   - [Jump hosts](#jump-hosts)
 - [Safety](#safety)
   - [A safer alternative: ssh-agent](#a-safer-alternative-ssh-agent)
+- [GitHub Actions](#github-actions)
 - [Notes](#notes)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -332,6 +339,7 @@ sshc scp  [scp options] source ... target
 sshc sftp [sftp options] destination
 sshc rsync [rsync options] source ... target
 sshc ssh-copy-id [ssh-copy-id options] destination
+sshc ssh-add [ssh-add options] [key ...]
 ```
 
 Whatever follows is passed to the tool as is:
@@ -362,6 +370,10 @@ Besides running the tools above, sshc has a few commands of its own:
 | `sshc unset` | remove a stored one |
 | `sshc list` | show what is stored and where, never the values |
 | `sshc check <destination>` | show which stored secret a connection would use |
+| `sshc` (nothing else), `sshc pick` | [pick a host](#picking-a-host) from your ssh config and connect |
+| `sshc hosts` | list the hosts in your ssh config |
+| `sshc each <hosts> -- <command>` | [run a command on several hosts](#several-hosts-at-once) |
+| `sshc run <command>` | [run any program that uses ssh](#git-ansible-and-other-programs-sshc-run), such as git |
 | `sshc install` | copy sshc to a per-user folder and put it on `PATH` |
 | `sshc init` | create a config file template |
 | `sshc shell-init [shell]` | print the [shell hook](#the-shell-hook) |
@@ -380,6 +392,7 @@ combine:
 | `-H NAME` | `--host NAME` | the login password of one host |
 | `-k NAME` | `--key NAME` | the passphrase of one key |
 | `-P NAME` | `--profile NAME` | a profile other than the active one |
+| `-c CMD` | `--command CMD` | do not store it; [run CMD](#password-managers) each time to fetch it |
 | `-f` | `--plain` | keep it in the config file, in plain text |
 | `-n` | `--no-clear` | do not clear the screen afterwards |
 | `-h` | `--help` | show the options |
@@ -399,6 +412,84 @@ sshc's own messages are set apart by blank lines, and on a terminal their key
 words are coloured. Output that is piped or redirected is always plain, and
 `NO_COLOR=1` turns colour off on a terminal too.
 
+### Picking a host
+
+Run `sshc` with nothing after it, or `sshc pick`, to choose from the hosts in
+your `~/.ssh/config`:
+
+```console
+$ sshc
+
+    1  db-prod
+    2  web1
+    3  web2
+
+Connect to (number or part of a name, Enter to cancel): web
+```
+
+Type a number, a name, or any part of a name. If more than one host matches,
+the list narrows and asks again. `sshc hosts` just prints the list. (When
+there is no terminal, or no hosts are defined, `sshc` alone prints the help
+as before.)
+
+With the [shell hook](#the-shell-hook) loaded, pressing Tab completes host
+names too: `sshc w<Tab>`, `sshc scp ./file w<Tab>`, `sshc set -H <Tab>`.
+
+### Several hosts at once
+
+```console
+$ sshc each web1 web2 db-prod -- uptime
+web1    |  14:02:11 up 12 days,  3:41,  0 users,  load average: 0.08, 0.03, 0.01
+db-prod |  14:02:11 up 40 days,  1:02,  1 user,   load average: 0.61, 0.44, 0.40
+web2    |  14:02:12 up 12 days,  3:40,  0 users,  load average: 0.00, 0.01, 0.00
+
+Done: all 3 hosts succeeded.
+
+```
+
+Everything before `--` is hosts, everything after is the command. The hosts
+run at the same time (`-j N` limits how many), each line is labelled with the
+host it came from, and the exit status is non-zero if any host failed. ssh
+options placed before the hosts (`sshc each -o ConnectTimeout=5 web1 web2 --
+...`) apply to all of them.
+
+Because the hosts share your terminal, nothing is asked while this runs: a
+host that needs a secret sshc has not stored, or whose host key you have not
+accepted yet, fails and is listed at the end. Connect to a new host once on
+its own first.
+
+### git, ansible and other programs: `sshc run`
+
+Many programs start ssh themselves. `sshc run` runs any of them with sshc
+answering the prompts underneath:
+
+```console
+$ sshc run git push
+$ sshc run ansible-playbook site.yml
+$ sshc run -d deploy.example.com -- ./deploy.sh
+```
+
+Stored key passphrases and host-specific passwords are used automatically.
+The active login password is the exception: sshc cannot see which host the
+program will connect to, so it is only offered to hosts you name with `-d`
+(by the name the server is reached under), never to whatever happens to ask.
+
+### Unlocking a key for everything: `sshc ssh-add`
+
+If your secret is a key passphrase, the neatest result is not to need sshc
+for each command at all. `sshc ssh-add` hands the key to
+[`ssh-agent`](#a-safer-alternative-ssh-agent) using the stored passphrase:
+
+```console
+$ sshc ssh-add                # or: sshc ssh-add ~/.ssh/id_ed25519
+Identity added: /home/luke/.ssh/id_ed25519 (luke@laptop)
+$ ssh w.go-2                  # plain ssh, git, scp, your editor: no prompt
+```
+
+It needs an agent to be running; see the ssh-agent section for starting one
+(on Windows it is a service you enable once). Put `sshc ssh-add` in your shell
+startup file and your key is unlocked in every session without typing.
+
 ### Moving a host to a key
 
 `ssh-copy-id` installs your public key on the server, which normally costs one
@@ -412,13 +503,14 @@ $ ssh w.go-2                  # logs in with the key
 
 ## Storing passwords and passphrases
 
-A secret can live in one of three places. sshc looks in all of them, and
+A secret can come from one of four places. sshc looks in all of them, and
 `sshc list` shows what is where.
 
 | Place | Set with | Lasts | Protection |
 | ----- | -------- | ----- | ---------- |
 | An environment variable | `sshc set -s` | until the terminal closes | in memory only |
 | Your system's credential store | `sshc set` | until you `sshc unset` it | encrypted, tied to your login |
+| Your password manager | `sshc set -c '<command>'` | sshc keeps nothing | whatever the manager provides |
 | The config file, in plain text | `sshc set --plain`, or by hand | until you remove it | file permissions only |
 
 ### Environment variables
@@ -449,7 +541,8 @@ variable set will use.
 
 A program cannot change the environment of the terminal that started it, so
 `-s` works through a few lines of shell code that wrap the `sshc` command.
-They have to be loaded when your shell starts:
+The same code sets up **tab completion** for host names, sshc's commands and
+their options. It has to be loaded when your shell starts:
 
 | Shell | Add this line to | Line |
 | ----- | ---------------- | ---- |
@@ -558,6 +651,41 @@ An entry saved to the store on your desktop cannot be read from an SSH
 session into the same machine if the keyring is not unlocked there; `sshc
 check` tells you when that is the case.
 
+### Password managers
+
+Instead of storing a secret, sshc can ask the tool that already has it.
+`sshc set -c` records a command; sshc runs it whenever the secret is needed
+and uses the first line it prints.
+
+```console
+$ sshc set -c 'op read "op://Work/web server/password"'      # 1Password
+$ sshc set -p -c 'pass show ssh/id_ed25519'                  # pass, for a key passphrase
+$ sshc set -H w.go-2 -c 'bw get password w.go-2'             # Bitwarden, one host
+```
+
+The same options as for any `sshc set` decide which entry the command belongs
+to. Any program works, as long as it prints the secret and nothing before it:
+a cloud secrets service (`aws secretsmanager get-secret-value ...`), the
+macOS `security` tool, or a script of your own. The examples above use each
+tool's own syntax, which is theirs to document.
+
+In the command, `%h` stands for the host being logged in to, `%u` for the
+user and `%k` for the key file, so one entry can serve many hosts:
+
+```console
+$ sshc set -c 'pass show ssh/%h'
+```
+
+Things to know:
+
+- The command is run directly, **not by a shell**: quotes group words, but
+  there are no pipes, variables or `~`. Put anything more elaborate in a
+  script and name the script.
+- If your password manager needs unlocking, it asks you in its own way (a
+  fingerprint, a window, a prompt) and sshc waits, for up to two minutes.
+- `sshc check` and `sshc list` show the command but never run it.
+- A command is not a secret, so it is written to the config file as it is.
+
 ### Config file
 
 The config file, `sshc.conf`, holds sshc's settings and the list of what is
@@ -580,6 +708,10 @@ password = @credential-store
 # One key's passphrase. Always wins over the active profile.
 [key id_ed25519]
 passphrase = @credential-store
+
+# Fetched from a password manager each time, by running this command.
+[host db-prod]
+password_command = op read "op://Work/db-prod/password"
 ```
 
 `sshc set` and `sshc unset` maintain this file for you, so there is normally
@@ -602,7 +734,8 @@ user config directory instead: `~/.config/sshc/` on Linux,
 is in use.
 
 Values run to the end of the line and are taken literally. The file is parsed
-as data and nothing in it is ever executed.
+as data; the only thing sshc ever runs from it is a `password_command` or
+`passphrase_command` that you put there.
 
 ### Which one is used
 
@@ -611,9 +744,12 @@ First match wins. The two columns never cross over:
 |   | For a login password prompt | For a key passphrase prompt |
 | - | --------------------------- | --------------------------- |
 | 1 | `SSHC_PASSWORD_<HOST>` | `SSHC_PASSPHRASE_<KEYFILE>` |
-| 2 | a saved `[host <name>]` entry (`sshc set -H`) | a saved `[key <name>]` entry (`sshc set -k`) |
+| 2 | the `[host <name>]` entry (`sshc set -H`) | the `[key <name>]` entry (`sshc set -k`) |
 | 3 | `SSHC_PASSWORD` | `SSHC_PASSPHRASE` |
-| 4 | the active profile's saved password (`sshc set`) | the active profile's saved passphrase (`sshc set -p`) |
+| 4 | the active profile's password (`sshc set`) | the active profile's passphrase (`sshc set -p`) |
+
+An entry in rows 2 and 4 is whatever you set it to: a value in the credential
+store, a password manager command, or plain text.
 
 A host entry can be written with the alias you type or with the real host
 name, with or without `user@`. A key entry can be the key's file name or its
@@ -670,6 +806,9 @@ What sshc does:
   owned by you with mode 600), since that file may hold plain-text secrets.
 - **Keeps secrets off command lines and out of its own output.** No command
   prints a stored value back.
+- **Runs a configured command directly, never through a shell**, and inserts
+  the host, user and key names as whole words, so a hostile host name cannot
+  add to the command.
 
 What it cannot do:
 
@@ -678,6 +817,9 @@ What it cannot do:
   same way - whichever of the three places it is kept in. The credential
   store protects against someone reading your disk, a backup or another
   account on the machine, not against malware in your own session.
+- A `password_command` is run with your permissions by anything that can
+  edit your config file. On Linux and macOS sshc insists that only you can;
+  on Windows that rests on the folder's permissions.
 - A secret in an environment variable is readable by other processes running
   as you (and by root), like any environment variable. Do not add `SSHC_*` to
   `SendEnv` in your ssh config.
@@ -713,6 +855,29 @@ then, in a normal one: `ssh-add $HOME\.ssh\id_ed25519`.
 
 Use sshc's passphrase support where an agent is not practical - in scripts and
 scheduled jobs, or on machines where you cannot run one.
+
+## GitHub Actions
+
+For deploying from a workflow to a host that only takes a password, this
+repository is also an action that installs sshc on the runner:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: W-Industries-Luke/sshc@v0.4.0
+  - run: |
+      mkdir -p ~/.ssh && echo "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
+      sshc scp -r ./site deploy@example.com:/var/www
+    env:
+      SSHC_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
+      KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+```
+
+It works on Linux, macOS and Windows runners, verifies the download against
+the release's checksums, and takes an optional `version` input (default: the
+latest release). Keep the password in a repository secret, and give the job
+the server's host key as shown rather than turning host key checking off -
+there is nobody to answer the "are you sure" question in a workflow.
 
 ## Notes
 
@@ -769,6 +934,21 @@ typically an SSH login or a scheduled job on Linux, where no keyring is
 unlocked. Set the variable for that session (`sshc set -s`), or store that
 entry with `sshc set --plain`.
 
+**"the password command of [...] failed".** sshc ran the command you set
+with `sshc set -c` and it did not print a secret. Run the same command
+yourself to see why: the password manager may be locked, signed out, or not
+on your `PATH` in that session. Remember that it is not run by a shell.
+
+**Tab does not complete host names.** Completion comes with the
+[shell hook](#the-shell-hook), so the hook has to be loaded and the terminal
+opened after it was added. Hosts are read from `~/.ssh/config`; patterns such
+as `*.example.com` are not offered. zsh also needs its completion system on
+(`autoload -Uz compinit && compinit` in `~/.zshrc`, before the sshc line).
+
+**`sshc each` says a host failed with exit status 255.** ssh could not log
+in. Most often the host has no stored secret or its host key is not known
+yet, and `each` does not ask; run `sshc <host>` once on its own.
+
 **"--session needs the sshc shell hook".** The [shell hook](#the-shell-hook)
 is not loaded in this terminal. Add the line the message shows to your shell's
 startup file and open a new terminal.
@@ -803,6 +983,7 @@ install.sh          one-line installers for Linux/macOS and Windows; they are
 install.ps1         fetched by URL, so they stay at the top level
 test/e2e.sh         end-to-end tests against a real sshd in Docker
 packaging/          where sshc is published and how to update each channel
+action.yml          the GitHub Action that installs sshc on a runner
 .github/workflows/  CI: unit tests on Linux, Windows and macOS, plus e2e
 ```
 

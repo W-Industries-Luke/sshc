@@ -32,6 +32,9 @@ Where it is kept:
                     sets it up, or see "sshc --shell-init".
   -f, --plain       the config file, in plain text, even where a credential
                     store exists
+  -c, --command CMD nowhere: sshc runs CMD each time and uses the first line
+                    it prints, e.g. a password manager's command-line tool.
+                    %h, %u and %k stand for the host, user and key file.
 
 What to store:
   (no option)       the login password of the active profile
@@ -225,7 +228,7 @@ var (
 	shortFlags = map[byte]string{
 		's': "--session", 'p': "--passphrase", 'f': "--plain", 'n': "--no-clear", 'h': "--help",
 	}
-	shortWithValue = map[byte]string{'H': "--host", 'k': "--key", 'P': "--profile"}
+	shortWithValue = map[byte]string{'H': "--host", 'k': "--key", 'P': "--profile", 'c': "--command"}
 )
 
 // expandShort rewrites short options to their long forms, so "-sp" becomes
@@ -267,6 +270,7 @@ func expandShort(args []string) (out []string, ok bool) {
 // target is what a "set" or "unset" command line points at.
 type target struct {
 	profile, host, key  string
+	command             string // fetch the secret by running this instead of storing it
 	passphrase, session bool
 	plain, clear        bool
 	value               string
@@ -301,6 +305,18 @@ func parseTarget(args []string, usage string, takesValue bool, out *os.File) (t 
 			t.clear = false
 		case arg == "--passphrase":
 			t.passphrase = true
+		case name == "--command" && takesValue:
+			if !attached {
+				i++
+				if i >= len(args) {
+					return fail("--command needs the command to run")
+				}
+				val = args[i]
+			}
+			if _, err := splitCommand(val); err != nil || strings.ContainsAny(val, "\r\n") {
+				return fail("%q is not a usable command", val)
+			}
+			t.command = val
 		case name == "--profile" || name == "--host" || name == "--key":
 			if !attached {
 				i++
@@ -344,6 +360,9 @@ func parseTarget(args []string, usage string, takesValue bool, out *os.File) (t 
 	}
 	if t.session && t.plain {
 		return fail("--session and --plain are different places to keep it; use one")
+	}
+	if t.command != "" && (t.session || t.plain || t.haveValue) {
+		return fail("--command replaces the stored value; it cannot be combined with --session, --plain or a value")
 	}
 	return t, 0, false
 }
@@ -454,19 +473,21 @@ func cmdSet(args []string) int {
 	}
 
 	secret := t.value
-	if !t.haveValue {
-		if secret, err = readNewPassword(what); err != nil {
-			warnf("%v", err)
+	if t.command == "" {
+		if !t.haveValue {
+			if secret, err = readNewPassword(what); err != nil {
+				warnf("%v", err)
+				return 1
+			}
+		}
+		if secret == "" || strings.ContainsAny(secret, "\r\n") {
+			warnf("the %s cannot be empty or contain a line break", what)
 			return 1
 		}
-	}
-	if secret == "" || strings.ContainsAny(secret, "\r\n") {
-		warnf("the %s cannot be empty or contain a line break", what)
-		return 1
-	}
-	if secret == storeMarker {
-		warnf("%q is reserved by sshc and cannot be used as a %s", storeMarker, what)
-		return 1
+		if secret == storeMarker {
+			warnf("%q is reserved by sshc and cannot be used as a %s", storeMarker, what)
+			return 1
+		}
 	}
 
 	var where string
@@ -490,6 +511,13 @@ func cmdSet(args []string) int {
 		inFile := secret
 		st, storeErr := systemStore()
 		switch {
+		case t.command != "":
+			// The command takes over: drop any value kept so far.
+			if st != nil {
+				_ = st.del(storeKey(section, what))
+			}
+			lines, _ = deleteConfigValue(lines, section, what)
+			where = fmt.Sprintf("%s of [%s], fetched by running: %s", what, section, t.command)
 		case t.plain || storeErr != nil:
 			if storeErr != nil && !t.plain {
 				notes = append(notes, fmt.Sprintf("Note: no credential store is available here (%v).", storeErr))
@@ -508,7 +536,12 @@ func cmdSet(args []string) int {
 			inFile = storeMarker
 			where = fmt.Sprintf("%s of [%s], kept in %s", what, section, st.name())
 		}
-		lines = setConfigValue(lines, section, what, inFile)
+		if t.command != "" {
+			lines = setConfigValue(lines, section, what+"_command", t.command)
+		} else {
+			lines = setConfigValue(lines, section, what, inFile)
+			lines, _ = deleteConfigValue(lines, section, what+"_command")
+		}
 		if err := writeConfig(cfgFile, lines); err != nil {
 			warnf("%v", err)
 			return 1
@@ -584,7 +617,7 @@ func cmdUnset(args []string) int {
 	}
 	section, _ := t.section(cfg)
 	current, _ := cfg.get(section, what)
-	if current == "" {
+	if command, _ := cfg.get(section, what+"_command"); current == "" && command == "" {
 		warnf("there is no stored %s for [%s]", what, section)
 		return 1
 	}
@@ -601,6 +634,7 @@ func cmdUnset(args []string) int {
 	lines, err := readConfigLines(cfgFile)
 	if err == nil {
 		lines, _ = deleteConfigValue(lines, section, what)
+		lines, _ = deleteConfigValue(lines, section, what+"_command")
 		err = writeConfig(cfgFile, lines)
 	}
 	if err != nil {
@@ -651,11 +685,15 @@ func cmdList(args []string) int {
 		for k, v := range cfg.entries {
 			section, key, _ := strings.Cut(k, "\n")
 			kind, _, _ := strings.Cut(section, " ")
+			isCommand := strings.HasSuffix(key, "_command")
+			key = strings.TrimSuffix(key, "_command")
 			if v == "" || key != "password" && key != "passphrase" || kind != "profile" && kind != "host" && kind != "key" {
 				continue
 			}
 			place := "plain text in the config file"
-			if v == storeMarker {
+			if isCommand {
+				place = "from the command: " + v
+			} else if v == storeMarker {
 				place = "credential store"
 				if storeErr != nil {
 					place += " (not readable here)"

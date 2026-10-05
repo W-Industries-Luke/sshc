@@ -14,6 +14,9 @@ import (
 // runs the real sshc with $SSHC_EMIT naming the shell's syntax, and evaluates
 // what sshc prints on stdout: one assignment in session mode, nothing
 // otherwise. sshc sends everything meant for the human to stderr meanwhile.
+//
+// The same hook sets up tab completion, which asks "sshc --complete" for the
+// candidates: host names from the ssh config, sshc's commands and options.
 const envEmit = "SSHC_EMIT"
 
 const hookPosix = `sshc() {
@@ -28,6 +31,36 @@ const hookPosix = `sshc() {
 		;;
 	esac
 }
+# Tab completion. Each shell's own syntax is kept inside eval so that the
+# others never have to parse it.
+if [ -n "${BASH_VERSION-}" ]; then
+	eval "$(command sshc --shell-init bash-completion)"
+elif [ -n "${ZSH_VERSION-}" ]; then
+	eval "$(command sshc --shell-init zsh-completion)"
+fi
+`
+
+const completeBash = `_sshc_complete() {
+	local IFS="
+"
+	COMPREPLY=($(command sshc --complete "$COMP_CWORD" "${COMP_WORDS[@]}" 2>/dev/null))
+	case "${COMPREPLY[0]-}" in *:) compopt -o nospace 2>/dev/null ;; esac
+}
+complete -o default -F _sshc_complete sshc
+`
+
+const completeZsh = `_sshc_complete() {
+	local -a found
+	found=("${(@f)$(command sshc --complete $((CURRENT - 1)) "${words[@]}" 2>/dev/null)}")
+	if [[ -z "${found[1]}" ]]; then
+		_files
+	elif [[ "${found[1]}" == *: ]]; then
+		compadd -S "" -a found
+	else
+		compadd -a found
+	fi
+}
+if (( $+functions[compdef] )); then compdef _sshc_complete sshc; fi
 `
 
 const hookFish = `function sshc
@@ -38,6 +71,8 @@ const hookFish = `function sshc
         command sshc $argv
     end
 end
+complete -c sshc -e
+complete -c sshc -a "(command sshc --complete (count (commandline -opc)) (commandline -opc) (commandline -ct) 2>/dev/null)"
 `
 
 const hookPowerShell = `function sshc {
@@ -52,6 +87,17 @@ const hookPowerShell = `function sshc {
         $input | & $exe @args
     } else {
         & $exe @args
+    }
+}
+Register-ArgumentCompleter -Native -CommandName sshc -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    $exe = (Get-Command sshc -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    if (-not $exe) { return }
+    $words = @($commandAst.CommandElements | ForEach-Object { $_.Extent.Text })
+    $index = $words.Count
+    if ($wordToComplete) { $index = $words.Count - 1 }
+    & $exe --complete $index @words 2>$null | ForEach-Object {
+        [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
     }
 }
 `
@@ -94,6 +140,17 @@ func cmdShellInit(args []string) int {
 	kind := defaultShellKind()
 	if len(args) == 1 {
 		kind = shellKind(args[0])
+	}
+	// The posix hook asks for these two itself, from inside the right shell.
+	if len(args) == 1 {
+		switch args[0] {
+		case "bash-completion":
+			fmt.Print(completeBash)
+			return 0
+		case "zsh-completion":
+			fmt.Print(completeZsh)
+			return 0
+		}
 	}
 	if len(args) > 1 || kind == "" {
 		warnf("usage: %s --shell-init [bash|zsh|fish|powershell]", prog)

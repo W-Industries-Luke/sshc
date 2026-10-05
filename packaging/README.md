@@ -6,6 +6,7 @@ Where sshc is published, and what to update for a new release `X.Y.Z`.
 | ------- | -------- | -------------------- |
 | GitHub release | this repo | tag `vX.Y.Z`, upload the `make dist` binaries and `SHA256SUMS` |
 | `install.sh`, `install.ps1` | this repo | nothing: they fetch the latest release |
+| GitHub Action | `action.yml` in this repo | nothing: it fetches the latest release; the version in the README example is the tag people pin |
 | Scoop | [scoop-bucket](https://github.com/W-Industries-Luke/scoop-bucket) `bucket/sshc.json` | `version`, the two URLs and hashes |
 | Homebrew | [homebrew-tap](https://github.com/W-Industries-Luke/homebrew-tap) `Formula/sshc.rb` | `version`, the four URLs and hashes |
 | winget | `winget/` here, submitted to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) | see below |

@@ -20,6 +20,11 @@ const configTemplate = `# sshc configuration.
 #
 #     password = @credential-store
 #
+# An entry can instead name a command that prints the secret, such as your
+# password manager's command-line tool ("sshc set --command" writes these):
+#
+#     password_command = op read "op://Work/server/password"
+#
 # You can also write a password here yourself, in plain text. Because it may
 # hold plain-text passwords, sshc refuses to read this file on Linux and macOS
 # unless it is owned by you and private (chmod 600). Never commit it.

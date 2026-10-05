@@ -125,6 +125,30 @@ check "the login password is not used as a passphrase" 255 "Permission denied" \
 check "--check reports the key"      0 "enckey: passphrase from environment variable SSHC_PASSPHRASE" \
 	env SSHC_PASSPHRASE=x sshc --check -F cfg -i enckey w.go-2
 
+# ssh-add: unlock the key into an agent with the stored passphrase.
+eval "$(ssh-agent -s)" >/dev/null
+check "ssh-add with a stored passphrase" 0 "Identity added" \
+	env -u SSHC_PASSWORD 'SSHC_PASSPHRASE=key phrase#2' sshc ssh-add enckey
+check "the agent now holds the key"  0 "ED25519" ssh-add -l
+ssh-add -D >/dev/null 2>&1
+check "ssh-add reports a rejected passphrase" 1 "was not accepted" \
+	env -u SSHC_PASSWORD SSHC_PASSPHRASE=wrong sshc ssh-add enckey
+ssh-agent -k >/dev/null 2>&1
+
+# run: any program that uses ssh underneath.
+check "run answers a key passphrase" 0 "via-run" \
+	env -u SSHC_PASSWORD 'SSHC_PASSPHRASE=key phrase#2' sshc run ssh -F cfg -i enckey -o PubkeyAuthentication=yes -o PasswordAuthentication=no w.go-2 echo via-run
+check "run -d offers the active password" 0 "via-run" sshc run -d 127.0.0.1 -- ssh -F cfg w.go-2 echo via-run
+check "run without -d does not"      255 "Permission denied" sshc run ssh -F cfg w.go-2 echo via-run
+
+# each: one command on several hosts.
+check "each runs on every host"      0 "kbd    | hello" sshc each -F cfg w.go-2 kbd -- echo hello
+check "each labels each host"        0 "w.go-2 | hello" sshc each -j 1 -F cfg w.go-2 kbd -- echo hello
+check "each reports the hosts that failed" 1 "1 of 2 hosts failed" \
+	sshc each -F cfg -o ConnectTimeout=3 w.go-2 nosuch.invalid -- true
+check "each never asks on the terminal" 1 "kbd (exit status 255)" \
+	env SSHC_PASSWORD=wrong sshc each -F cfg kbd -- true
+
 check "active password is not offered to a jump host" 255 "jump@127.0.0.1: Permission denied" \
 	sshc -F cfg inner echo hi
 check "jump host with its own variable" 0 "hi" \
@@ -140,6 +164,12 @@ if sshc --check -F cfg w.go-2 2>&1 | grep -qF "$PW"; then
 fi
 unset SSHC_PASSWORD
 
+mkdir -p sshhome/.ssh && printf 'Host alpha beta\n HostName 127.0.0.1\nHost *.wild\n User x\n' >sshhome/.ssh/config
+check "hosts lists the ssh config"   0 "alpha" env "HOME=$work/sshhome" sshc hosts
+check "completion offers hosts"      0 "beta"  env "HOME=$work/sshhome" sshc --complete 1 sshc b
+check "completion offers commands"   0 "unset" env "HOME=$work/sshhome" sshc --complete 1 sshc un
+check "completion offers options"    0 "--passphrase" env "HOME=$work/sshhome" sshc --complete 2 sshc set --pa
+check "no arguments without a terminal prints the help" 0 "Usage: sshc" sshc
 check "-v alone is the sshc version"  0 "sshc 0."   sshc -v
 check "word forms of the commands"   0 "sshc 0."   sshc version
 check "check as a word"              0 "w.go-2 -> 127.0.0.1" env SSHC_PASSWORD=x sshc check -F cfg w.go-2
@@ -158,6 +188,15 @@ check "set replaced the password"    0 "password of [profile work], in plain tex
 check "set from a pipe"              0 "Updated!" sh -c "printf '%s\\n' '$PW' | sshc set --profile piped"
 check "the piped profile logs in"    0 "hi"       env SSHC_PROFILE=piped sshc -F cfg w.go-2 echo hi
 check "set --host"                   0 "password of [host kbd], in plain text" sshc set --host kbd "$PW"
+# A command in place of a stored value, as for a password manager.
+printf '#!/bin/sh\necho "$1" >>"%s/pm.log"\necho "%s"\n' "$work" "$PW" >bin/fakepm && chmod +x bin/fakepm
+check "set --command"                0 "fetched by running" sshc set -H w.go-2 -c "fakepm 'asked for %u at %h'"
+check "check describes the command without running it" 0 "by running fakepm" sshc check -F cfg w.go-2
+check "check did not run it"         1 ""         test -e pm.log
+check "connect through the command"  0 "hi"       env SSHC_PROFILE=bad sshc -F cfg w.go-2 echo hi
+check "the command got the host and user" 0 "asked for luke at 127.0.0.1" cat pm.log
+check "list shows the command, it is not a secret" 0 "from the command: fakepm" sshc list
+check "unset removes the command"    0 "password of [host w.go-2]" sshc unset -H w.go-2
 check "set -H (short form)"          0 "password of [host short], in plain text" sshc set -H short x
 check "list names entries, not values" 0 "[host kbd]" sshc list
 if sshc list | grep -qF "$PW"; then

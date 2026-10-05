@@ -37,7 +37,7 @@ func checkSSHVersion() error {
 
 // childEnv is our environment with the askpass hook pointed back at us.
 func childEnv(self, state, cfgPath string, dests []dest) []string {
-	drop := []string{"SSH_ASKPASS", "SSH_ASKPASS_REQUIRE", envState, envDests, envConfig}
+	drop := []string{"SSH_ASKPASS", "SSH_ASKPASS_REQUIRE", envState, envDests, envConfig, envTool, envNoTTY}
 	var env []string
 next:
 	for _, kv := range os.Environ() {
@@ -86,35 +86,10 @@ func spawn(tool string, args, env []string) int {
 	}
 }
 
-func runTool(tool string, args []string) int {
-	cfgPath, err := findConfig()
-	if err != nil {
-		warnf("%v", err)
-		return 1
-	}
-	// Nothing stored anywhere: behave exactly like the plain tool.
-	if cfgPath == "" && !newResolver(nil, nil).hasEnvPasswords() {
-		debugf("no config file and no SSHC_PASSWORD*/SSHC_PASSPHRASE* variables; running plain %s", tool)
-		return passthrough(tool, args)
-	}
-	debugf("config file: %q", cfgPath)
-	if cfgPath != "" {
-		if err := checkConfigSecure(cfgPath); err != nil {
-			warnf("%v", err)
-			return 1
-		}
-	}
-	if err := checkSSHVersion(); err != nil {
-		warnf("%v", err)
-		return 1
-	}
-	dests := findDests(tool, args)
-	if len(dests) == 0 {
-		debugf("no destination found in the arguments; running plain %s", tool)
-		return passthrough(tool, args)
-	}
-	debugf("destinations: %q", encodeDests(dests))
-
+// launch runs a program with sshc answering the prompts of any ssh it starts.
+// dests are the hosts that may be given the active password; tool names the
+// wrapped tool for the askpass side.
+func launch(program string, args []string, cfgPath string, dests []dest, tool string) int {
 	self, err := os.Executable()
 	if err != nil {
 		warnf("could not locate my own executable: %v", err)
@@ -132,7 +107,115 @@ func runTool(tool string, args []string) int {
 	defer os.RemoveAll(state)
 	debugf("askpass program: %q, state: %q", self, state)
 
-	return spawn(tool, args, childEnv(self, state, cfgPath, dests))
+	return spawn(program, args, append(childEnv(self, state, cfgPath, dests), envTool+"="+tool))
+}
+
+// prepare does what every launch needs first. ok is false when sshc has
+// nothing stored (plain is then true: just run the program) or cannot go on.
+func prepare(name string) (cfgPath string, ok, plain bool) {
+	cfgPath, err := findConfig()
+	if err != nil {
+		warnf("%v", err)
+		return "", false, false
+	}
+	// Nothing stored anywhere: behave exactly like the plain tool.
+	if cfgPath == "" && !newResolver(nil, nil).hasEnvPasswords() {
+		debugf("no config file and no SSHC_PASSWORD*/SSHC_PASSPHRASE* variables; running plain %s", name)
+		return "", false, true
+	}
+	debugf("config file: %q", cfgPath)
+	if cfgPath != "" {
+		if err := checkConfigSecure(cfgPath); err != nil {
+			warnf("%v", err)
+			return "", false, false
+		}
+	}
+	if err := checkSSHVersion(); err != nil {
+		warnf("%v", err)
+		return "", false, false
+	}
+	return cfgPath, true, false
+}
+
+func runTool(tool string, args []string) int {
+	cfgPath, ok, plain := prepare(tool)
+	if plain {
+		return passthrough(tool, args)
+	}
+	if !ok {
+		return 1
+	}
+	var dests []dest
+	// ssh-add talks to the local agent, not to a host.
+	if tool != "ssh-add" {
+		if dests = findDests(tool, args); len(dests) == 0 {
+			debugf("no destination found in the arguments; running plain %s", tool)
+			return passthrough(tool, args)
+		}
+		debugf("destinations: %q", encodeDests(dests))
+	}
+	return launch(tool, args, cfgPath, dests, tool)
+}
+
+const runUsage = `Usage: sshc run [-d HOST]... [--] command [arguments ...]
+
+Runs any command with sshc answering the ssh prompts underneath it - for
+programs that call ssh themselves, such as git, ansible or sshfs.
+
+  -d, --dest HOST   a host this command will connect to. Stored key
+                    passphrases and host-specific passwords are used anyway;
+                    the active login password is only offered to hosts named
+                    here.
+`
+
+func cmdRun(args []string) int {
+	var hosts []string
+options:
+	for len(args) > 0 {
+		name, val, attached := strings.Cut(args[0], "=")
+		switch {
+		case args[0] == "-h" || args[0] == "--help":
+			fmt.Print(runUsage)
+			return 0
+		case args[0] == "--":
+			args = args[1:]
+			break options
+		case name == "-d" || name == "--dest":
+			args = args[1:]
+			if !attached {
+				if len(args) == 0 {
+					warnf("%s needs a host", name)
+					return 1
+				}
+				val, args = args[0], args[1:]
+			}
+			hosts = append(hosts, val)
+		case strings.HasPrefix(args[0], "-"):
+			fmt.Fprint(os.Stderr, runUsage)
+			return 1
+		default:
+			break options
+		}
+	}
+	if len(args) == 0 {
+		fmt.Fprint(os.Stderr, runUsage)
+		return 1
+	}
+	cfgPath, ok, plain := prepare(args[0])
+	if plain {
+		return passthrough(args[0], args[1:])
+	}
+	if !ok {
+		return 1
+	}
+	var dests []dest
+	for _, h := range hosts {
+		if d, ok := queryDest([]string{"--", h}); ok {
+			d.alias = h
+			dests = append(dests, d)
+		}
+	}
+	return launch(args[0], args[1:], cfgPath, dests, "run")
 }
 
 func cmdCheck(args []string) int {
@@ -170,6 +253,7 @@ func cmdCheck(args []string) int {
 		return 1
 	}
 	r := newResolver(cfg, dests)
+	r.dryRun = true // a password manager should not be woken just to look
 	for _, d := range dests {
 		lines := []string{fmt.Sprintf("%s -> %s (user %s)", d.alias, d.hostname, d.user)}
 		if d.alias == d.hostname {
