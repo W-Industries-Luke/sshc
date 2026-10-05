@@ -147,6 +147,26 @@ password = boxpw`, "\n")
 	}
 }
 
+func TestManagedDir(t *testing.T) {
+	tests := []struct {
+		dir  string
+		want bool
+	}{
+		{"/home/luke/.local/bin", false},
+		{`C:\Users\Luke\AppData\Local\Programs\sshc`, false},
+		{"/opt/homebrew/Cellar/sshc/0.1.1/bin", true},
+		{"/home/linuxbrew/.linuxbrew/Cellar/sshc/0.1.1/bin", true},
+		{`C:\Users\Luke\scoop\apps\sshc\current`, true},
+		{`C:\Users\Luke\AppData\Local\Microsoft\WinGet\Packages\LukeWeaver.sshc_Microsoft.Winget.Source_8wekyb3d8bbwe`, true},
+		{"/nix/store/abc-sshc-0.1.1/bin", true},
+	}
+	for _, tt := range tests {
+		if got := managedDir(tt.dir); got != tt.want {
+			t.Errorf("managedDir(%q) = %v; want %v", tt.dir, got, tt.want)
+		}
+	}
+}
+
 func TestLookup(t *testing.T) {
 	cfg := &config{path: "sshc.conf", entries: map[string]string{
 		configKey("", "profile"):               "work",

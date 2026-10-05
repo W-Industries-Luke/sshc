@@ -286,6 +286,21 @@ key passphrase. They live in the shell that set them and the programs that
 shell starts, so different terminals can hold different values at the same
 time.
 
+A value set this way **stays in effect for the rest of that terminal session**.
+Every `sshc` command you run there uses it until you set it again, unset it,
+or close the terminal - it is not asked for again and does not expire. Other
+terminals, including ones you open later, are unaffected and start without it.
+A variable also takes precedence over the config file, so `sshc set` does not
+change what a terminal with the variable set will use.
+
+```bash
+unset SSHC_PASSWORD                  # bash / zsh: stop using it in this terminal
+```
+
+```powershell
+Remove-Item Env:SSHC_PASSWORD        # PowerShell
+```
+
 Set it without it landing in your shell history:
 
 ```bash
@@ -337,9 +352,13 @@ does not remove the command from your **shell history**, and the argument is
 briefly visible to other users in the process list - use plain `sshc set` to
 avoid both.
 
-You can also edit the file by hand. `sshc --init` creates `sshc.conf` next to the sshc executable (or in your user
-config directory if that location is not writable). `$SSHC_CONFIG` points
-somewhere else.
+You can also edit the file by hand. `sshc --init` creates `sshc.conf` next to
+the sshc executable. If that location is not writable, or sshc was installed
+by a package manager (Scoop, Homebrew, winget - they replace that folder on
+every upgrade), the file goes in your user config directory instead:
+`~/.config/sshc/` on Linux, `~/Library/Application Support/sshc/` on macOS,
+`%AppData%\sshc\` on Windows. `$SSHC_CONFIG` points somewhere else, and
+`sshc --check` always shows which file is in use.
 
 ```ini
 # The active profile. $SSHC_PROFILE overrides this per shell.

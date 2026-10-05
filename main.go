@@ -15,7 +15,7 @@ import (
 
 const (
 	prog    = "sshc"
-	version = "0.1.0"
+	version = "0.1.1"
 )
 
 const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]

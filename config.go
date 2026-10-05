@@ -160,13 +160,26 @@ func loadConfig(path string) (*config, error) {
 	return &config{path: path, entries: entries}, nil
 }
 
+// managedDir reports whether dir belongs to a package manager. Those replace
+// the whole directory on every upgrade, so a config file created there would
+// silently disappear.
+func managedDir(dir string) bool {
+	d := strings.ToLower(strings.ReplaceAll(dir, "\\", "/")) + "/"
+	for _, marker := range []string{"/cellar/", "/scoop/apps/", "/winget/packages/", "/nix/store/"} {
+		if strings.Contains(d, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // defaultConfigTarget is where a new config file goes: $SSHC_CONFIG, else
 // next to the executable, else the user config directory.
 func defaultConfigTarget() (string, error) {
 	if p := os.Getenv("SSHC_CONFIG"); p != "" {
 		return p, nil
 	}
-	if dir, err := installDir(); err == nil && dirWritable(dir) {
+	if dir, err := installDir(); err == nil && !managedDir(dir) && dirWritable(dir) {
 		return filepath.Join(dir, configName), nil
 	}
 	return userConfigPath()
