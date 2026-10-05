@@ -1,0 +1,12 @@
+# build output
+/sshc
+/sshc.exe
+/dist/
+
+# holds plain-text passwords; never commit it
+sshc.conf
+
+/import/
+
+# local tooling
+/.claude/

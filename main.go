@@ -1,0 +1,87 @@
+// sshc runs ssh, scp and sftp and answers their password prompt from a stored
+// password.
+//
+// It does this through OpenSSH's own SSH_ASKPASS hook: sshc starts the real
+// client with itself registered as the askpass program, and the client calls
+// back into sshc whenever it needs something typed. There is no sshpass or
+// expect involved, the password never appears on a command line, and every
+// option is handed to the real tool untouched.
+package main
+
+import (
+	"fmt"
+	"os"
+)
+
+const (
+	prog    = "sshc"
+	version = "0.1.0"
+)
+
+const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
+       sshc scp  [scp options] source ... target
+       sshc sftp [sftp options] destination
+       sshc rsync [rsync options] source ... target
+       sshc ssh-copy-id [ssh-copy-id options] destination
+
+Runs the tool and answers the password prompt from a stored password.
+Everything after the optional tool name is handed to that tool unchanged.
+
+  sshc --check [tool] args...   show where the password would come from
+  sshc --init                   create a config file template
+  sshc --help | --version
+
+Password sources, first match wins:
+  1. $SSHC_PASSWORD_<HOST>   one host, e.g. SSHC_PASSWORD_W_GO_2 for "w.go-2"
+  2. [host <name>] section   in the config file
+  3. $SSHC_PASSWORD          the active password, for the host(s) you name
+  4. [profile <name>]        the active profile in the config file, selected
+                             by $SSHC_PROFILE or the file's "profile =" line
+
+Config file: $SSHC_CONFIG, else sshc.conf next to the sshc executable, else
+sshc/sshc.conf in your user config directory. On Linux and macOS it must be
+private to you (chmod 600).
+`
+
+func warnf(format string, a ...any) {
+	fmt.Fprintf(os.Stderr, prog+": "+format+"\n", a...)
+}
+
+func isTool(s string) bool {
+	switch s {
+	case "ssh", "scp", "sftp", "rsync", "ssh-copy-id":
+		return true
+	}
+	return false
+}
+
+func run(args []string) int {
+	if isAskpassCall(args) {
+		return askpassMain(args[0])
+	}
+	if len(args) == 0 {
+		fmt.Print(usageText)
+		return 0
+	}
+	switch args[0] {
+	case "--help":
+		fmt.Print(usageText)
+		return 0
+	case "--version":
+		fmt.Println(prog, version)
+		return 0
+	case "--init":
+		return cmdInit()
+	case "--check":
+		return cmdCheck(args[1:])
+	}
+	tool := "ssh"
+	if isTool(args[0]) {
+		tool, args = args[0], args[1:]
+	}
+	return runTool(tool, args)
+}
+
+func main() {
+	os.Exit(run(os.Args[1:]))
+}
