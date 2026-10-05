@@ -690,6 +690,9 @@ func cmdList(args []string) int {
 	if p := r.activeProfile(); p != "" {
 		head += "\nactive profile: " + p
 	}
+	if isLocked(cfg) {
+		head = "LOCKED: " + lockedNotice + "\n" + head
+	}
 	u.say("%s", head)
 
 	var rows []string

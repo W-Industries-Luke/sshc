@@ -130,6 +130,13 @@ func prepare(name string) (cfgPath string, ok, plain bool) {
 			return "", false, false
 		}
 	}
+	if cfg, err := loadConfig(cfgPath); err == nil && isLocked(cfg) {
+		lockedNow = true
+		u := newUI(os.Stderr)
+		u.say("Note: " + lockedNotice)
+		u.flush()
+		return "", false, true
+	}
 	if err := checkSSHVersion(); err != nil {
 		warnf("%v", err)
 		return "", false, false
@@ -238,6 +245,9 @@ func cmdCheck(args []string) int {
 		return 1
 	}
 	u := newUI(os.Stdout)
+	if isLocked(cfg) {
+		u.say("LOCKED: " + lockedNotice)
+	}
 	if cfgPath == "" {
 		u.say("config file: none")
 	} else {

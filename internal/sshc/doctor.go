@@ -114,6 +114,18 @@ func cmdDoctor(args []string) int {
 			note("%d secrets are in plain text in the config file; \"sshc migrate\" moves them to the credential store", plain)
 		}
 	}
+	if isLocked(cfg) {
+		note("sshc is locked: nothing stored is supplied until you run \"sshc unlock\"")
+	} else if setting, _ := cfg.get("", "lock_after"); setting != "" {
+		if _, ok := parseLockAfter(setting); ok {
+			good("locks itself after %s without use", setting)
+		} else {
+			bad("use a value such as 30m, 8h or 2d", "lock_after = %s in the config file is not a length of time", setting)
+		}
+	}
+	if err := canVerifyUser(); err != nil {
+		note("\"sshc lock\" is not available here: %v", err)
+	}
 	if newResolver(cfg, nil).hasEnvPasswords() {
 		note("SSHC_* variables are set in this terminal and take precedence over saved entries")
 	}

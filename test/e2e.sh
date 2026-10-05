@@ -16,6 +16,8 @@ unset SSHC_PASSWORD SSHC_PASSPHRASE SSHC_PROFILE SSHC_CONFIG
 # Keep the tests out of the developer's real keyring; the credential store
 # gets its own section below.
 export SSHC_CREDENTIAL_STORE=off
+# ... and out of the developer's real lock state.
+export SSHC_STATE_DIR=$work/state
 cd "$work" || exit 2
 
 PW='s3cret pass#1'
@@ -124,6 +126,16 @@ check "the login password is not used as a passphrase" 255 "Permission denied" \
 	bash -c "$(declare -f keyssh); keyssh w.go-2 true"
 check "--check reports the key"      0 "enckey: passphrase from environment variable SSHC_PASSPHRASE" \
 	env SSHC_PASSPHRASE=x sshc --check -F cfg -i enckey w.go-2
+
+# lock: while locked nothing stored is supplied.
+if [ "$(id -u)" != 0 ]; then
+	check "lock switches sshc off"       0 "Locked!"  sshc lock
+	check "a locked sshc supplies nothing" 255 "sshc is locked" sshc -F cfg -o BatchMode=yes w.go-2 echo hi
+	check "list shows the lock"          0 "LOCKED"   sshc list
+	check "unlock needs to verify you"   1 "still locked" sshc unlock
+	rm -f "$SSHC_STATE_DIR/locked"
+	check "unlocked again"               0 "hi"       sshc -F cfg w.go-2 echo hi
+fi
 
 # ssh-add: unlock the key into an agent with the stored passphrase.
 eval "$(ssh-agent -s)" >/dev/null

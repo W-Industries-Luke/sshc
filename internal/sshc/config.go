@@ -40,6 +40,10 @@ const configTemplate = `# sshc configuration.
 # one terminal.
 #profile = work
 
+# Lock sshc by itself when it has not been used for this long (30m, 8h, 2d).
+# "sshc unlock" switches it back on. See "sshc lock".
+#lock_after = 8h
+
 # Keep a record of every prompt sshc answers: when, for what, and where the
 # secret came from - never the secret. "yes" writes sshc.log next to this
 # file; a path writes there.

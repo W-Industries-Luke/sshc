@@ -4,7 +4,7 @@
 # is needed: clone ssh://aur@aur.archlinux.org/sshc-bin.git, copy this file in,
 # run "updpkgsums && makepkg --printsrcinfo > .SRCINFO", commit and push.
 pkgname=sshc-bin
-pkgver=0.5.0
+pkgver=0.6.0
 pkgrel=1
 pkgdesc="ssh, scp, sftp and rsync that answer the password prompt for you"
 arch=('x86_64' 'aarch64')

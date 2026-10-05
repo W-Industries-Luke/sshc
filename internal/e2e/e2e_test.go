@@ -218,7 +218,8 @@ func newEnv(t *testing.T, hosts map[string]*server) *env {
 	if err := os.WriteFile(conf, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	e.vars = append(e.vars, "SSHC_CONFIG="+conf, "SSHC_NO_PROMPT=1", "SSHC_CREDENTIAL_STORE=off", "NO_COLOR=1")
+	e.vars = append(e.vars, "SSHC_CONFIG="+conf, "SSHC_NO_PROMPT=1", "SSHC_CREDENTIAL_STORE=off", "NO_COLOR=1",
+		"SSHC_STATE_DIR="+filepath.Join(dir, "state"))
 	return e
 }
 
@@ -533,5 +534,73 @@ func TestInstall(t *testing.T) {
 	// A second run must be harmless.
 	if out, err := exec.Command(installed, "install", target).CombinedOutput(); err != nil || !strings.Contains(string(out), "already installed") {
 		t.Errorf("second install: %v %q", err, out)
+	}
+}
+
+func TestLocked(t *testing.T) {
+	s := startServer(t, serverOptions{password: testPassword})
+	e := newEnv(t, map[string]*server{"box": s})
+	stored := []string{"SSHC_PASSWORD=" + testPassword}
+	out, errs, status := e.ssh(stored, "box", "echo", "hello")
+	wantOutput(t, "login before locking", out, errs, status, "hello")
+	before := len(s.offered())
+
+	// Lock by hand: "sshc lock" needs a device that can verify the user,
+	// which a CI runner may not have.
+	state := filepath.Join(e.dir, "state")
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	lock := filepath.Join(state, "locked")
+	if err := os.WriteFile(lock, []byte("test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, errs, status = e.ssh(stored, "-o", "BatchMode=yes", "box", "echo", "hello")
+	if status == 0 || !strings.Contains(errs, "sshc is locked") {
+		t.Errorf("locked login: status %d, stderr %q; want a failure that says sshc is locked", status, errs)
+	}
+	if got := len(s.offered()); got != before {
+		t.Errorf("a password was sent while locked: %q", s.offered())
+	}
+	if out, _, _ := e.run("", nil, "list"); !strings.Contains(out, "LOCKED") {
+		t.Errorf("list does not show the lock: %q", out)
+	}
+	if out, _, status := e.run("", stored, "each", "-F", e.sshConfig(), "box", "--", "echo", "hello"); status == 0 {
+		t.Errorf("each ran while locked: %q", out)
+	}
+	// With no terminal and nobody to verify, unlock must refuse. (Root is
+	// never asked to prove who it is, so there the check cannot fail.)
+	if os.Geteuid() != 0 {
+		if _, errs, status := e.run("", nil, "unlock"); status == 0 || !strings.Contains(errs, "still locked") {
+			t.Errorf("unlock without verification: status %d, stderr %q", status, errs)
+		}
+		if _, err := os.Stat(lock); err != nil {
+			t.Fatal("a failed unlock removed the lock")
+		}
+	}
+
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	out, errs, status = e.ssh(stored, "box", "echo", "hello")
+	wantOutput(t, "login after the lock is gone", out, errs, status, "hello")
+	if out, _, _ := e.run("", nil, "unlock"); !strings.Contains(out, "not locked") {
+		t.Errorf("unlock when not locked: %q", out)
+	}
+}
+
+// TestLockCommand checks that "sshc lock" either locks, or refuses because
+// this machine has no way to verify the user for the unlock.
+func TestLockCommand(t *testing.T) {
+	e := newEnv(t, nil)
+	out, errs, status := e.run("", nil, "lock")
+	t.Logf("sshc lock: status %d\n%s%s", status, out, errs)
+	lock := filepath.Join(e.dir, "state", "locked")
+	_, err := os.Stat(lock)
+	switch {
+	case status == 0 && err == nil && strings.Contains(out, "Locked!"):
+	case status != 0 && err != nil && strings.Contains(errs, "not locking"):
+	default:
+		t.Errorf("lock: status %d, lock file present: %v", status, err == nil)
 	}
 }

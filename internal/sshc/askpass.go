@@ -173,6 +173,11 @@ func askpassMain(prompt string) int {
 	if err != nil {
 		warnf("%v", err)
 	}
+	// Locked after this connection was started, or by the inactivity limit.
+	if isLocked(cfg) {
+		debugf("sshc is locked; asking on the terminal")
+		return askTTY(prompt, false)
+	}
 	secret, from, note := find(newResolver(cfg, decodeDests(os.Getenv(envDests))))
 	if note != "" {
 		warnf("%s", note)
@@ -188,6 +193,7 @@ func askpassMain(prompt string) int {
 		return askTTY(prompt, false)
 	}
 	auditLog(cfg, "supplied", what, from)
+	touchActivity()
 	fmt.Println(secret)
 	return 0
 }

@@ -84,6 +84,10 @@ own:
 	}
 
 	cfgPath, ok, plain := prepare("ssh")
+	if lockedNow {
+		warnf("\"sshc each\" cannot ask for passwords, and sshc is locked")
+		return 1
+	}
 	if !ok && !plain {
 		return 1
 	}

@@ -13,7 +13,7 @@ import (
 // a wrapped tool.
 var ownCommands = []string{
 	"set", "unset", "list", "check", "hosts", "pick", "each", "run",
-	"use", "migrate", "update", "doctor",
+	"use", "migrate", "update", "doctor", "lock", "unlock",
 	"install", "init", "shell-init", "help", "version",
 	"ssh", "scp", "sftp", "rsync", "ssh-copy-id", "ssh-add",
 }
@@ -110,7 +110,7 @@ func completions(words []string, cword int) []string {
 		if !strings.HasPrefix(cur, "-") {
 			candidates = profileNames()
 		}
-	case command == "migrate" || command == "update" || command == "doctor":
+	case command == "migrate" || command == "update" || command == "doctor" || command == "lock" || command == "unlock":
 	case command == "help":
 		candidates = []string{"set", "unset", "use", "run", "each"}
 	case command == "shell-init":

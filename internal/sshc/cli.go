@@ -26,7 +26,7 @@ import (
 const prog = "sshc"
 
 // version is a variable so that a test build can pretend to be an old one.
-var version = "0.5.0"
+var version = "0.6.0"
 
 const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
        sshc scp  [scp options] source ... target
@@ -49,6 +49,9 @@ Storing secrets:
   sshc use [NAME]               show or switch the active profile
   sshc migrate                  move plain-text entries into the credential
                                 store
+  sshc lock                     switch sshc off: nothing stored is supplied
+  sshc unlock                   switch it back on, after your device has
+                                verified you (PIN, or account password)
 
 More ways to connect:
   sshc                          on its own: pick a host from your ssh config
@@ -224,6 +227,10 @@ func Main(args []string) int {
 		return cmdUpdate(args[1:])
 	case "doctor":
 		return cmdDoctor(args[1:])
+	case "lock":
+		return cmdLock(args[1:])
+	case "unlock":
+		return cmdUnlock(args[1:])
 	}
 	tool := "ssh"
 	if isTool(args[0]) {

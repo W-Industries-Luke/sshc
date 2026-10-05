@@ -47,12 +47,24 @@ Only the latest release is supported.
   the checksum before running anything. To check the attestation yourself:
   `gh attestation verify <file> --repo W-Industries-Luke/sshc`.
 
+- **Use of your stored secrets by someone at your keyboard**, when you have
+  run `sshc lock`: sshc then supplies nothing until the operating system has
+  verified you again (Windows Hello, or the account password on macOS and
+  Linux). See the limits of this just below.
+
 ## What sshc does not protect against
 
 - **Programs running as you.** sshc supplies secrets without asking, so
   other software under your account can obtain them the same way: by reading
   an environment variable, asking the credential store, or running sshc.
   Nothing that automates a password can prevent this.
+- **`sshc lock` is a switch, not a vault.** It makes sshc refuse to supply
+  secrets; it does not encrypt them or move them. A program running as you
+  can still read the credential store or a session variable directly, and
+  can delete the lock file, which is an ordinary file in your user
+  directory. The lock is meant for a person at an unattended terminal and for
+  stray scripts, in the way a screen lock is. It is not a defence against
+  malware, and should not be described as one.
 - **An administrator or root** on your machine.
 - **Plain-text storage you chose.** `sshc set --plain`, a secret typed into
   the config file, or the fallback where no credential store exists, is

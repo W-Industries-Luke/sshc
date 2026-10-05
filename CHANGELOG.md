@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+- `sshc lock` switches sshc off: while locked it supplies no stored password, passphrase or one-time code from any source, and connections ask you instead. `sshc unlock` switches it back on after your device has verified you - Windows Hello on Windows, the account password on macOS and Linux.
+- `lock_after = 8h` (or `30m`, `2d`, ...) in the config file locks sshc by itself when it has not been used for that long.
+- `sshc list`, `sshc check` and `sshc doctor` show when sshc is locked. `sshc lock` refuses where an unlock could not work: without Windows Hello set up, or as root.
+
+The lock is a switch that sshc obeys, for a person at an unattended terminal or a stray script. It does not encrypt anything and does not stop other software running under your account from reading the credential store or removing the lock; `SECURITY.md` says so in full.
+
+Known limitation: the Windows Hello prompt cannot be exercised by automated tests, so on Windows the unlock itself has been tested only as far as detecting that Hello is unavailable.
+
 ## 0.5.0
 
 **New commands**

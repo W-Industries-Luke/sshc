@@ -1,4 +1,4 @@
-.TH SSHC 1 "2026-10-05" "sshc 0.5.0" "User Commands"
+.TH SSHC 1 "2026-10-05" "sshc 0.6.0" "User Commands"
 .SH NAME
 sshc \- ssh, scp, sftp and rsync that answer the password prompt for you
 .SH SYNOPSIS
@@ -12,7 +12,7 @@ sshc \- ssh, scp, sftp and rsync that answer the password prompt for you
 [\fB\-s\fR] [\fB\-p\fR] [\fB\-H\fR \fIhost\fR] [\fB\-k\fR \fIkey\fR] [\fB\-P\fR \fIprofile\fR] [\fB\-c\fR \fIcommand\fR] [\fIvalue\fR]
 .br
 .B sshc
-\fBunset\fR | \fBlist\fR | \fBcheck\fR | \fBuse\fR | \fBmigrate\fR | \fBhosts\fR | \fBpick\fR | \fBeach\fR | \fBrun\fR | \fBupdate\fR | \fBdoctor\fR ...
+\fBunset\fR | \fBlist\fR | \fBcheck\fR | \fBuse\fR | \fBmigrate\fR | \fBlock\fR | \fBunlock\fR | \fBhosts\fR | \fBpick\fR | \fBeach\fR | \fBrun\fR | \fBupdate\fR | \fBdoctor\fR ...
 .SH DESCRIPTION
 .B sshc
 runs the OpenSSH client that is already installed and answers its prompt for
@@ -80,6 +80,15 @@ Show or switch the active profile.
 .TP
 .B sshc migrate
 Move plain-text entries into the credential store.
+.TP
+.BR "sshc lock" ", " "sshc unlock"
+Switch sshc off, so that it supplies nothing stored, and back on after the
+system has verified the user (Windows Hello, or the account password). This
+is a switch that sshc obeys, not encryption: it guards against use by
+someone at the keyboard, not against other programs running as the user.
+Setting
+.B lock_after
+in the config file locks sshc after that long without use.
 .TP
 .BR sshc ", " "sshc pick"
 Pick a host from the ssh config and connect to it.

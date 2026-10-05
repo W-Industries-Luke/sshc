@@ -68,7 +68,8 @@ var highlights = []struct {
 	color string
 }{
 	// Outcomes.
-	{regexp.MustCompile(`(?m)^(Updated!|Removed!|Installed|Created|Added|Moved|Kept|Done:)`), sgrGreen},
+	{regexp.MustCompile(`(?m)^(Updated!|Removed!|Unlocked!|Installed|Created|Added|Moved|Kept|Done:)`), sgrGreen},
+	{regexp.MustCompile(`(?m)^(Locked!|LOCKED:)`), sgrRed},
 	{regexp.MustCompile(`(?m)^(sshc:)`), sgrRed},
 	{regexp.MustCompile(`(?m)^\s*(Warning:)`), sgrRed},
 	{regexp.MustCompile(`(?m)^\s*(Note:|Optional:)`), sgrYellow},

@@ -70,6 +70,8 @@ What it does:
   [verification code](#one-time-codes) after the password.
 - **Installs in CI** as a [GitHub Action](#github-actions), for deploying to
   hosts that only take a password.
+- **Can be switched off**: [`sshc lock`](#locking-sshc) stops it supplying
+  anything until your device has verified you again.
 - **Looks after itself**: [`sshc doctor`](#when-something-is-off-sshc-doctor)
   diagnoses the setup and `sshc update` installs the latest release.
 
@@ -109,6 +111,7 @@ What it does:
   - [Which one is used](#which-one-is-used)
   - [Jump hosts](#jump-hosts)
 - [Safety](#safety)
+  - [Locking sshc](#locking-sshc)
   - [A safer alternative: ssh-agent](#a-safer-alternative-ssh-agent)
 - [GitHub Actions](#github-actions)
 - [Notes](#notes)
@@ -222,8 +225,8 @@ brew install W-Industries-Luke/tap/sshc                                   # macO
 `amd64` and `arm64`, which install `sshc` to `/usr/bin` with its man page:
 
 ```console
-$ sudo apt install ./sshc_0.5.0_amd64.deb        # Debian, Ubuntu
-$ sudo dnf install ./sshc-0.5.0-1.x86_64.rpm     # Fedora, RHEL
+$ sudo apt install ./sshc_0.6.0_amd64.deb        # Debian, Ubuntu
+$ sudo dnf install ./sshc-0.6.0-1.x86_64.rpm     # Fedora, RHEL
 ```
 
 **Manual download** - download the one file for your system, then run it once
@@ -429,6 +432,7 @@ Besides running the tools above, sshc has a few commands of its own:
 | `sshc run <command>` | [run any program that uses ssh](#git-ansible-and-other-programs-sshc-run), such as git |
 | `sshc use [NAME]` | show or switch the [active profile](#profiles) |
 | `sshc migrate` | move plain-text entries into the credential store |
+| `sshc lock`, `sshc unlock` | [switch sshc off](#locking-sshc), and back on after your device has verified you |
 | `sshc doctor` | [check the setup](#when-something-is-off-sshc-doctor) and say how to fix it |
 | `sshc update` | install the latest release |
 | `sshc install` | copy sshc to a per-user folder and put it on `PATH` |
@@ -555,7 +559,7 @@ startup file and your key is unlocked in every session without typing.
 $ sshc doctor
 
   ok       OpenSSH client: OpenSSH_9.6p1
-  ok       sshc 0.5.0 at /home/luke/.local/bin/sshc
+  ok       sshc 0.6.0 at /home/luke/.local/bin/sshc
   PROBLEM  the shell hook is not loaded in this terminal
            -> add this line to your shell's startup file and open a new terminal:
               command -v sshc >/dev/null 2>&1 && eval "$(sshc --shell-init posix)"
@@ -956,6 +960,9 @@ What it cannot do:
 - A `password_command` is run with your permissions by anything that can
   edit your config file. On Linux and macOS sshc insists that only you can;
   on Windows that rests on the folder's permissions.
+- `sshc lock` does not change any of this: it stops sshc from supplying
+  secrets, not other programs from reaching them. See
+  [Locking sshc](#locking-sshc).
 - A secret in an environment variable is readable by other processes running
   as you (and by root), like any environment variable. Do not add `SSHC_*` to
   `SendEnv` in your ssh config.
@@ -967,6 +974,60 @@ What it cannot do:
   that someone who copies your private key file still cannot use it. Stored in
   plain text on the same machine, it no longer protects against anyone who can
   read your files - it is then roughly as safe as a key with no passphrase.
+
+### Locking sshc
+
+`sshc lock` switches sshc off. While it is locked it supplies nothing - no
+session variable, nothing from the credential store, no password manager
+command, no one-time code - and every connection asks you, as plain ssh
+would. `sshc unlock` switches it back on, after your device has verified that
+it is you:
+
+| System | `sshc unlock` asks for |
+| ------ | ---------------------- |
+| Windows | Windows Hello: your PIN, fingerprint or face |
+| macOS | your account password |
+| Linux | your account password |
+
+```console
+$ sshc lock
+
+Locked!
+
+sshc will not supply any stored password, passphrase or code until you run "sshc unlock",
+which asks for your Windows Hello PIN, fingerprint or face. Connections will ask you instead.
+
+$ sshc w.go-2
+
+Note: sshc is locked, so nothing stored is being used. Run "sshc unlock" to switch it back on.
+
+Enter passphrase for key 'C:\Users\Luke.Weaver/.ssh/id_ed25519':
+```
+
+To have it lock by itself when it has not been used for a while, set a time
+in the config file - `30m`, `8h`, `2d`:
+
+```ini
+lock_after = 8h
+```
+
+`sshc list`, `sshc check` and `sshc doctor` show when sshc is locked.
+`sshc lock` refuses to lock where the unlock could not work: on Windows
+without Windows Hello set up, or when you are root.
+
+**What the lock is, and is not.** It is a switch that sshc itself obeys. It
+protects against:
+
+- someone sitting down at your unlocked computer and running `sshc`;
+- a script or scheduled job using your stored secrets when you did not mean
+  it to;
+- your own slip of the hand.
+
+It does **not** protect against software running under your account. Such a
+program has no need to go through sshc: it can read the credential store
+directly, read a session variable, or delete the lock file. The lock does
+not encrypt anything, and a secret that is stored stays exactly where it was.
+Treat it like locking your screen, not like a safe.
 
 ### A safer alternative: ssh-agent
 
@@ -1000,7 +1061,7 @@ repository is also an action that installs sshc on the runner:
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: W-Industries-Luke/sshc@v0.5.0
+  - uses: W-Industries-Luke/sshc@v0.6.0
   - run: |
       mkdir -p ~/.ssh && echo "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
       sshc scp -r ./site deploy@example.com:/var/www
@@ -1087,6 +1148,12 @@ as `*.example.com` are not offered. zsh also needs its completion system on
 **`sshc each` says a host failed with exit status 255.** ssh could not log
 in. Most often the host has no stored secret or its host key is not known
 yet, and `each` does not ask; run `sshc <host>` once on its own.
+
+**"sshc is locked".** sshc was switched off with `sshc lock`, or locked
+itself after the time set as `lock_after`. Run `sshc unlock`. If your device
+cannot verify you at all - no Windows Hello any more, an account without a
+password - the message from `sshc unlock` names the lock file; deleting it
+unlocks sshc.
 
 **"--session needs the sshc shell hook".** The [shell hook](#the-shell-hook)
 is not loaded in this terminal. Add the line the message shows to your shell's
