@@ -113,7 +113,13 @@ func cmdInstall(args []string) int {
 		return 1
 	}
 
-	u := newUI(os.Stdout)
+	// Under the shell hook, stdout carries code for the shell.
+	emit := os.Getenv(envEmit)
+	out := os.Stdout
+	if emit != "" {
+		out = os.Stderr
+	}
+	u := newUI(out)
 	defer u.flush()
 	target := filepath.Join(dir, exeName())
 	if sameFile(self, target) {
@@ -161,6 +167,14 @@ func cmdInstall(args []string) int {
 	if other := shadowingCopy(target); other != "" {
 		u.say("Warning: another copy of %s comes first on your PATH and will be the one that runs:\n    %s\nRemove one of the two. If that copy came from a package manager, either\nuninstall it there or upgrade it there and delete this one.", prog, other)
 	}
-	u.say("Open a new terminal, then run: %s --version", prog)
+	switch hint := refreshHint(); {
+	case reloadCode(emit) != "":
+		printEmit(emit, "", true)
+		u.say("This terminal is already using it: try %s --version", prog)
+	case hint != "":
+		u.say("Open a new terminal, or run this to carry on in the current one:\n    %s\nThen try: %s --version", hint, prog)
+	default:
+		u.say("Open a new terminal, then run: %s --version", prog)
+	}
 	return status
 }

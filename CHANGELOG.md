@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.2
+
+No more "open a new terminal" after an update:
+
+- The shell hook now keeps itself current. `sshc update` and `sshc install` reload it in the terminal they run in, and if sshc was updated some other way (a package manager, the install script in another window), the next `sshc set`, `unset` or `use` notices the old hook and replaces it.
+- On Windows, the install script brings the PowerShell window it runs in up to date: the install folder goes on that session's `Path` and the hook is loaded, so `sshc` works straight away.
+- On Linux and macOS, `sshc install` ends by naming the one command that refreshes the current terminal (`. ~/.bashrc` or the like), since a program cannot change the shell that started it.
+
+A terminal opened before 0.6.2 still has the old hook, so it needs reopening one last time - or one `sshc set`, `unset` or `use`, which replaces it.
+
 ## 0.6.1
 
 - While sshc is locked, `sshc set`, `sshc unset` and `sshc use` now say so, so that a change made then does not look as if it had no effect. `sshc list` shows the lock as a message of its own, set apart by a blank line like every other message.

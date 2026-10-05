@@ -36,6 +36,21 @@
 
         & (Join-Path $tmp $file) --install
         if ($LASTEXITCODE -ne 0) { throw "sshc: --install failed" }
+
+        # This script runs inside your PowerShell window, so it can bring the
+        # window up to date itself: the folder goes on this session's Path and
+        # the shell hook is loaded, with no need to open a new one.
+        $dir = Join-Path $env:LOCALAPPDATA 'Programs\sshc'
+        $exe = Join-Path $dir 'sshc.exe'
+        if (Test-Path $exe) {
+            if (($env:Path -split ';') -notcontains $dir) { $env:Path = "$env:Path;$dir" }
+            & $exe --shell-init powershell | Out-String | Invoke-Expression
+            $first = (Get-Command sshc -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+            if ($first -eq $exe) {
+                Write-Host "sshc is ready in this window too: try sshc --version"
+            }
+            Write-Host ""
+        }
     }
     finally {
         Remove-Item -Recurse -Force $tmp

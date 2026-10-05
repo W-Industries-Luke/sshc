@@ -267,6 +267,11 @@ check "installed binary runs"        0 "sshc "    fakehome/.local/bin/sshc --ver
 check "--install moved the config"   0 "profile = work" cat fakehome/.local/bin/sshc.conf
 check "--install added a PATH line"  0 'export PATH="$HOME/.local/bin:$PATH"' cat fakehome/.bashrc
 check "--install added the shell hook" 0 'eval "$(sshc --shell-init posix)"' cat fakehome/.bashrc
+check "a stale hook replaces itself" 0 "[$(sshc version | cut -d' ' -f2)]" \
+	bash -c 'eval "$(sshc --shell-init bash)"; export SSHC_HOOK_VERSION=0.1.0; sshc set -s x 2>/dev/null; echo "[$SSHC_HOOK_VERSION]"'
+mkdir -p hookhome
+check "install under the hook reloads it" 0 "already using it" \
+	env "HOME=$work/hookhome" SHELL=/bin/bash bash -c 'eval "$(sshc --shell-init bash)"; sshc install "$HOME/hooked" 2>&1'
 check "use switches the profile of one terminal" 0 "[work]" \
 	bash -c 'eval "$(sshc --shell-init bash)"; sshc use work 2>/dev/null; echo "[$SSHC_PROFILE]"'
 check "use without the hook explains" 1 "needs the sshc shell hook" sshc use work

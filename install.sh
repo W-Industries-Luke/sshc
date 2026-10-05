@@ -50,4 +50,6 @@ if [ -z "$want" ] || [ "$want" != "$got" ]; then
 fi
 
 chmod +x "$tmp/$file"
+# A script cannot change the shell that started it, so --install ends by
+# naming the one command that brings this terminal up to date.
 "$tmp/$file" --install

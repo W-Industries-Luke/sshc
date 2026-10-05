@@ -225,8 +225,8 @@ brew install W-Industries-Luke/tap/sshc                                   # macO
 `amd64` and `arm64`, which install `sshc` to `/usr/bin` with its man page:
 
 ```console
-$ sudo apt install ./sshc_0.6.1_amd64.deb        # Debian, Ubuntu
-$ sudo dnf install ./sshc-0.6.1-1.x86_64.rpm     # Fedora, RHEL
+$ sudo apt install ./sshc_0.6.2_amd64.deb        # Debian, Ubuntu
+$ sudo dnf install ./sshc-0.6.2-1.x86_64.rpm     # Fedora, RHEL
 ```
 
 **Manual download** - download the one file for your system, then run it once
@@ -268,12 +268,16 @@ one line to your shell's startup file (`~/.bashrc`, `~/.zshrc`, ...) and tells
 you which. On macOS, a file downloaded with a browser has to be released from
 quarantine first: `xattr -d com.apple.quarantine sshc-darwin-arm64`.
 
-**Then open a new terminal** - the one you installed from still has the old
-`PATH` - and check:
+**Then check that it worked:**
 
 ```console
 $ sshc --version
 ```
+
+A terminal only learns about a changed `PATH` when it starts, so after a
+first install this needs either a new terminal or, on Linux and macOS, the
+one command the installer prints at the end (such as `. ~/.bashrc`). The
+Windows install script updates the PowerShell window it runs in by itself.
 
 After that you can delete the downloaded file. `sshc --install <directory>`
 installs somewhere else; running `--install` from a newer download upgrades.
@@ -294,8 +298,8 @@ $ gh attestation verify sshc-linux-amd64 --repo W-Industries-Luke/sshc
 its checksum and replaces the copy you are running (`sshc update --check`
 only tells you whether there is one). If sshc came from a package manager it
 says so instead: use `scoop update sshc`, `brew upgrade sshc`, or your
-system's package tool. Afterwards open a new terminal, so that the
-[shell hook](#the-shell-hook) of the new version is loaded.
+system's package tool. There is no need to open a new terminal afterwards:
+the [shell hook](#the-shell-hook) reloads itself when sshc has changed.
 
 **From source instead** (needs [Go](https://go.dev/dl/) 1.26 or newer):
 
@@ -559,7 +563,7 @@ startup file and your key is unlocked in every session without typing.
 $ sshc doctor
 
   ok       OpenSSH client: OpenSSH_9.6p1
-  ok       sshc 0.6.1 at /home/luke/.local/bin/sshc
+  ok       sshc 0.6.2 at /home/luke/.local/bin/sshc
   PROBLEM  the shell hook is not loaded in this terminal
            -> add this line to your shell's startup file and open a new terminal:
               command -v sshc >/dev/null 2>&1 && eval "$(sshc --shell-init posix)"
@@ -648,10 +652,12 @@ Add-Content $PROFILE 'sshc --shell-init powershell | Out-String | Invoke-Express
 
 If new PowerShell windows then say that running scripts is disabled, allow
 your own profile with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
-Open a new terminal afterwards. `sshc --shell-init` prints the hook if you
-want to read it first; apart from completion, all it does is hand `sshc set`, `sshc unset` and
-`sshc use` to the real program and apply the one variable change it asks
-for.
+Open a new terminal afterwards. That is the only time: once the hook is
+loaded it keeps itself up to date, reloading in place when `sshc update` runs
+or when it notices that sshc has been upgraded since the terminal was opened.
+`sshc --shell-init` prints the hook if you want to read it first; apart from completion, all it does is hand `sshc set`, `unset`, `use`,
+`update` and `install` to the real program and apply what it asks for: one
+variable change, or a reload of the hook itself.
 
 #### Without the hook
 
@@ -1064,7 +1070,7 @@ repository is also an action that installs sshc on the runner:
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: W-Industries-Luke/sshc@v0.6.1
+  - uses: W-Industries-Luke/sshc@v0.6.2
   - run: |
       mkdir -p ~/.ssh && echo "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
       sshc scp -r ./site deploy@example.com:/var/www
@@ -1107,9 +1113,9 @@ one-time code, which sshc leaves to you.
 Setting `SSHC_DEBUG=1` makes sshc print what it decides at each step (never
 the secret itself).
 
-**`sshc -v` still shows the old version after an upgrade**, or a new option
-just prints the usage text. First open a new terminal. If that does not help,
-you have two copies installed and the older one comes first on your `PATH`.
+**`sshc -v` still shows the old version after an upgrade**, or a new command
+is taken for a host name. The program itself is replaced at once, so this
+nearly always means you have two copies installed and the older one comes first on your `PATH`.
 List them:
 
 ```powershell

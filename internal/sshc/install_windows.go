@@ -138,3 +138,8 @@ func installShellHook() string {
 	}
 	return msg
 }
+
+// refreshHint has nothing to offer on Windows: a running PowerShell cannot
+// re-read the user's Path from one short command. The install script does it
+// for the window it runs in.
+func refreshHint() string { return "" }

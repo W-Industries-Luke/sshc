@@ -506,7 +506,7 @@ func cmdSet(args []string) int {
 	var notes []string
 	if t.session {
 		code, _ := emitAssignment(emit, t.envName(), secret)
-		fmt.Println(code)
+		printEmit(emit, code, false)
 		where = t.envName() + " is set for this terminal session only."
 	} else {
 		lines, err := readConfigLines(cfgFile)
@@ -613,7 +613,7 @@ func cmdUnset(args []string) int {
 		if !ok {
 			return hookMissing("--session")
 		}
-		fmt.Println(code)
+		printEmit(emit, code, false)
 		u := newUI(out)
 		u.say("Removed!")
 		u.say("%s is no longer set in this terminal.", t.envName())

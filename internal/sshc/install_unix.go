@@ -111,3 +111,21 @@ func installShellHook() string {
 	return "Could not set up the shell hook for \"sshc set --session\": " + err.Error() +
 		"\nAdd this line to your shell's startup file yourself:\n    " + hookLine(kind)
 }
+
+// refreshHint is a command that brings the current shell up to date after an
+// install, by reading its startup file again.
+func refreshHint() string {
+	file, kind, err := startupFile()
+	if err != nil {
+		return ""
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if rel, err := filepath.Rel(home, file); err == nil && !strings.HasPrefix(rel, "..") {
+			file = "~/" + rel
+		}
+	}
+	if kind == "fish" {
+		return "source " + file
+	}
+	return ". " + file
+}

@@ -15,6 +15,9 @@ import (
 // what sshc prints on stdout: one assignment in session mode, nothing
 // otherwise. sshc sends everything meant for the human to stderr meanwhile.
 //
+// It does the same for "update" and "install", which answer with code that
+// reloads the hook itself, so the terminal picks up a new version at once.
+//
 // The same hook sets up tab completion, which asks "sshc --complete" for the
 // candidates: host names from the ssh config, sshc's commands and options.
 const envEmit = "SSHC_EMIT"
@@ -22,7 +25,7 @@ const envEmit = "SSHC_EMIT"
 const hookPosix = `export SSHC_HOOK=posix
 sshc() {
 	case "${1-}" in
-	set | unset | use)
+	set | unset | use | update | install)
 		__sshc_code=$(SSHC_EMIT=posix command sshc "$@") || { unset __sshc_code; return 1; }
 		eval "$__sshc_code"
 		unset __sshc_code
@@ -66,7 +69,7 @@ if (( $+functions[compdef] )); then compdef _sshc_complete sshc; fi
 
 const hookFish = `set -gx SSHC_HOOK fish
 function sshc
-    if test (count $argv) -ge 1; and contains -- "$argv[1]" set unset use
+    if test (count $argv) -ge 1; and contains -- "$argv[1]" set unset use update install
         set -l code (SSHC_EMIT=fish command sshc $argv); or return 1
         eval $code
     else
@@ -78,9 +81,9 @@ complete -c sshc -a "(command sshc --complete (count (commandline -opc)) (comman
 `
 
 const hookPowerShell = `$env:SSHC_HOOK = 'powershell'
-function sshc {
+function global:sshc {
     $exe = (Get-Command sshc -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-    if ($args.Count -ge 1 -and (@('set', 'unset', 'use') -contains $args[0])) {
+    if ($args.Count -ge 1 -and (@('set', 'unset', 'use', 'update', 'install') -contains $args[0])) {
         $env:SSHC_EMIT = 'powershell'
         try {
             if ($MyInvocation.ExpectingInput) { $code = $input | & $exe @args } else { $code = & $exe @args }
@@ -159,15 +162,59 @@ func cmdShellInit(args []string) int {
 		warnf("usage: %s --shell-init [bash|zsh|fish|powershell]", prog)
 		return 1
 	}
+	// Each hook also records which version of sshc it came from, so that a
+	// newer sshc can tell that the shell still has an old one loaded.
 	switch kind {
 	case "powershell":
 		fmt.Print(hookPowerShell)
+		fmt.Printf("$env:%s = '%s'\n", envHookVersion, version)
 	case "fish":
 		fmt.Print(hookFish)
+		fmt.Printf("set -gx %s %s\n", envHookVersion, version)
 	default:
 		fmt.Print(hookPosix)
+		fmt.Printf("export %s=%s\n", envHookVersion, version)
 	}
 	return 0
+}
+
+// envHookVersion is set by the hook to the version of sshc that printed it.
+const envHookVersion = "SSHC_HOOK_VERSION"
+
+// reloadCode is shell code that loads the hook afresh into the running shell.
+func reloadCode(kind string) string {
+	switch kind {
+	case "posix":
+		return `eval "$(command sshc --shell-init posix)"`
+	case "fish":
+		return `command sshc --shell-init fish | source`
+	case "powershell":
+		return `& (Get-Command sshc -CommandType Application | Select-Object -First 1).Source --shell-init powershell | Out-String | Invoke-Expression`
+	}
+	return ""
+}
+
+// printEmit hands shell code to the hook that called sshc. If that hook was
+// loaded from another version of sshc - the program has been updated since
+// the terminal was opened - the code first replaces it with the current one,
+// so a terminal never needs reopening for the hook's sake. force reloads
+// regardless, for a command that has just changed the program on disk.
+func printEmit(kind, code string, force bool) {
+	reload := reloadCode(kind)
+	if reload == "" {
+		return
+	}
+	var parts []string
+	if force || os.Getenv(envHookVersion) != version {
+		parts = append(parts, reload)
+	}
+	if code != "" {
+		parts = append(parts, code)
+	}
+	// One line, so that every shell evaluates it the same way.
+	if len(parts) > 0 {
+		fmt.Println(strings.Join(parts, "; "))
+	}
 }
 
 // emitAssignment renders "set this variable in the current shell" in the

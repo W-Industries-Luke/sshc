@@ -122,7 +122,7 @@ func cmdUse(args []string) int {
 	if !ok {
 		return hookMissing("switching the profile of this terminal")
 	}
-	fmt.Println(code)
+	printEmit(emit, code, false)
 	u.say("Updated!")
 	if reset {
 		u.say("This terminal is back on the saved default profile.")
@@ -291,9 +291,17 @@ func cmdUpdate(args []string) int {
 		warnf("%v", err)
 		return 1
 	}
-	u := newUI(os.Stdout)
+	// Under the shell hook, stdout carries code for the shell.
+	emit := os.Getenv(envEmit)
+	out := os.Stdout
+	if emit != "" {
+		out = os.Stderr
+	}
+	u := newUI(out)
 	defer u.flush()
 	if !newer(latest, version) {
+		// The program may be current while this terminal's hook is not.
+		printEmit(emit, "", false)
 		u.say("%s %s is the latest version.", prog, version)
 		return 0
 	}
@@ -354,7 +362,12 @@ func cmdUpdate(args []string) int {
 	}
 	u.say("Updated!")
 	u.say("%s %s -> %s, at %s", prog, version, latest, self)
-	u.say("Open a new terminal so that the shell hook of the new version is loaded.")
+	if reloadCode(emit) != "" {
+		printEmit(emit, "", true)
+		u.say("This terminal is already using the new version.")
+	} else {
+		u.say("Open a new terminal so that the shell hook of the new version is loaded.")
+	}
 	return 0
 }
 
