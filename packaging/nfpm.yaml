@@ -1,0 +1,40 @@
+# Template for the .deb and .rpm packages. packaging/build-packages.sh fills in
+# @VERSION@ and @ARCH@ and runs nfpm on the result.
+name: sshc
+arch: "@ARCH@"
+platform: linux
+version: "@VERSION@"
+section: net
+priority: optional
+maintainer: Luke A. Weaver <172839406+W-Industries-Luke@users.noreply.github.com>
+description: |
+  ssh, scp, sftp and rsync that answer the password prompt for you.
+  Runs the installed OpenSSH client and supplies its login password or key
+  passphrase from the system credential store, an environment variable or a
+  password manager.
+vendor: Luke A. Weaver
+homepage: https://github.com/W-Industries-Luke/sshc
+license: MIT
+depends:
+  - openssh-client
+recommends:
+  - libsecret-tools
+overrides:
+  rpm:
+    depends:
+      - openssh-clients
+    recommends:
+      - libsecret
+contents:
+  - src: dist/sshc-linux-@ARCH@
+    dst: /usr/bin/sshc
+    file_info:
+      mode: 0755
+  - src: docs/sshc.1
+    dst: /usr/share/man/man1/sshc.1
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/sshc/copyright
+    file_info:
+      mode: 0644

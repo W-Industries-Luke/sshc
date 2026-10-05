@@ -1,0 +1,164 @@
+.TH SSHC 1 "2026-10-05" "sshc 0.5.0" "User Commands"
+.SH NAME
+sshc \- ssh, scp, sftp and rsync that answer the password prompt for you
+.SH SYNOPSIS
+.B sshc
+[\fBssh\fR] [\fIssh options\fR] \fIdestination\fR [\fIcommand\fR ...]
+.br
+.B sshc
+\fBscp\fR | \fBsftp\fR | \fBrsync\fR | \fBssh\-copy\-id\fR | \fBssh\-add\fR [\fIoptions\fR] ...
+.br
+.B sshc set
+[\fB\-s\fR] [\fB\-p\fR] [\fB\-H\fR \fIhost\fR] [\fB\-k\fR \fIkey\fR] [\fB\-P\fR \fIprofile\fR] [\fB\-c\fR \fIcommand\fR] [\fIvalue\fR]
+.br
+.B sshc
+\fBunset\fR | \fBlist\fR | \fBcheck\fR | \fBuse\fR | \fBmigrate\fR | \fBhosts\fR | \fBpick\fR | \fBeach\fR | \fBrun\fR | \fBupdate\fR | \fBdoctor\fR ...
+.SH DESCRIPTION
+.B sshc
+runs the OpenSSH client that is already installed and answers its prompt for
+a login password, or for the passphrase of an SSH key, from a secret you have
+stored. It does this through OpenSSH's own
+.B SSH_ASKPASS
+hook, so every option of the wrapped tool keeps working and the secret is
+never placed on a command line.
+.PP
+Everything after the optional tool name is handed to that tool unchanged.
+A host key confirmation, a password change and any other prompt are passed
+to the terminal as usual.
+.SH STORING SECRETS
+.TP
+.B sshc set \-s
+Keep the secret for this terminal only, in an environment variable. Needs the
+shell hook (see
+.BR "SHELL HOOK" ).
+.TP
+.B sshc set
+Save it in the system's credential store: Windows Credential Manager, the
+macOS Keychain or the Secret Service keyring on Linux. Where there is none,
+or with
+.BR \-\-plain ,
+it is kept in the config file in plain text.
+.TP
+.BI "sshc set \-c " command
+Store nothing. Run
+.I command
+\- a password manager's command-line tool \- whenever the secret is needed and
+use the first line it prints.
+.BR %h ,
+.B %u
+and
+.B %k
+stand for the host, user and key file. The command is run directly, not by a
+shell.
+.PP
+Add
+.B \-p
+for a key passphrase instead of a login password,
+.BI \-H " host"
+for one host,
+.BI \-k " key"
+for one key,
+.BI \-P " profile"
+for a profile other than the active one, and
+.B \-o
+(with
+.B \-H
+and
+.BR \-c )
+for the one-time code a host asks for after the password.
+.B sshc unset
+takes the same options and removes an entry;
+.B sshc list
+shows what is stored and where, never the values.
+.SH OTHER COMMANDS
+.TP
+.BI "sshc check " destination
+Show which stored secret a connection would use, without connecting.
+.TP
+.BR "sshc use " [\fIname\fR]
+Show or switch the active profile.
+.TP
+.B sshc migrate
+Move plain-text entries into the credential store.
+.TP
+.BR sshc ", " "sshc pick"
+Pick a host from the ssh config and connect to it.
+.B sshc hosts
+lists them.
+.TP
+.BI "sshc each " "host ... " \-\- " command"
+Run a command on several hosts at once.
+.TP
+.BI "sshc run " command
+Run any program that uses ssh underneath, such as git, with its prompts
+answered. The active login password is only offered to hosts named with
+.BR \-d .
+.TP
+.B sshc ssh\-add
+Unlock a key into ssh\-agent with the stored passphrase.
+.TP
+.BR "sshc update " [ \-\-check ]
+Install the latest release.
+.TP
+.B sshc doctor
+Check the setup and say how to fix what is wrong.
+.TP
+.BR "sshc install" ", " "sshc init" ", " "sshc shell\-init"
+Install for the current user, create a config file template, print the shell
+hook.
+.SH SHELL HOOK
+.B sshc set \-s
+and
+.B sshc use
+change the environment of the running shell, which only shell code can do,
+and Tab completion is shell code as well. Load the hook from the shell's
+startup file:
+.PP
+.nf
+    eval "$(sshc shell\-init bash)"        # bash, zsh
+    sshc shell\-init fish | source         # fish
+.fi
+.SH ENVIRONMENT
+.TP
+.BR SSHC_PASSWORD ", " SSHC_PASSPHRASE
+The active login password and key passphrase.
+.TP
+.BR SSHC_PASSWORD_ \fIHOST\fR ", " SSHC_PASSPHRASE_ \fIKEYFILE\fR
+The same for one host or key; the name is upper-cased, with every other
+character replaced by an underscore.
+.TP
+.B SSHC_PROFILE
+The active profile.
+.TP
+.B SSHC_CONFIG
+The config file to use.
+.TP
+.B SSHC_CREDENTIAL_STORE
+Set to
+.B off
+to keep away from the credential store.
+.TP
+.B SSHC_NO_PROMPT
+If set, never ask on the terminal; fail instead. For scripts.
+.TP
+.B SSHC_DEBUG
+If set, print what sshc decides at each step, never a secret.
+.TP
+.B NO_COLOR
+If set, do not colour the output.
+.SH FILES
+.TP
+.I sshc.conf
+Next to the executable, or in
+.I ~/.config/sshc/
+when that directory is not writable or belongs to a package manager. It
+records which entries exist and holds settings; it must be readable by its
+owner only.
+.SH SEE ALSO
+.BR ssh (1),
+.BR scp (1),
+.BR sftp (1),
+.BR ssh\-add (1),
+.BR ssh\-agent (1)
+.PP
+Full documentation: https://github.com/W-Industries-Luke/sshc

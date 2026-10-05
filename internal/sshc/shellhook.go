@@ -19,9 +19,10 @@ import (
 // candidates: host names from the ssh config, sshc's commands and options.
 const envEmit = "SSHC_EMIT"
 
-const hookPosix = `sshc() {
+const hookPosix = `export SSHC_HOOK=posix
+sshc() {
 	case "${1-}" in
-	set | unset)
+	set | unset | use)
 		__sshc_code=$(SSHC_EMIT=posix command sshc "$@") || { unset __sshc_code; return 1; }
 		eval "$__sshc_code"
 		unset __sshc_code
@@ -63,8 +64,9 @@ const completeZsh = `_sshc_complete() {
 if (( $+functions[compdef] )); then compdef _sshc_complete sshc; fi
 `
 
-const hookFish = `function sshc
-    if test (count $argv) -ge 1; and contains -- "$argv[1]" set unset
+const hookFish = `set -gx SSHC_HOOK fish
+function sshc
+    if test (count $argv) -ge 1; and contains -- "$argv[1]" set unset use
         set -l code (SSHC_EMIT=fish command sshc $argv); or return 1
         eval $code
     else
@@ -75,9 +77,10 @@ complete -c sshc -e
 complete -c sshc -a "(command sshc --complete (count (commandline -opc)) (commandline -opc) (commandline -ct) 2>/dev/null)"
 `
 
-const hookPowerShell = `function sshc {
+const hookPowerShell = `$env:SSHC_HOOK = 'powershell'
+function sshc {
     $exe = (Get-Command sshc -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-    if ($args.Count -ge 1 -and ($args[0] -eq 'set' -or $args[0] -eq 'unset')) {
+    if ($args.Count -ge 1 -and (@('set', 'unset', 'use') -contains $args[0])) {
         $env:SSHC_EMIT = 'powershell'
         try {
             if ($MyInvocation.ExpectingInput) { $code = $input | & $exe @args } else { $code = & $exe @args }

@@ -3,6 +3,7 @@ package sshc
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -69,14 +70,71 @@ func addToUserPath(dir string) (changed string, err error) {
 	return "your user Path setting", nil
 }
 
-// installShellHook only explains the step on Windows. Whether PowerShell loads
-// a profile at all depends on the machine's execution policy, and a profile
-// it refuses to load produces an error in every new window - so the choice is
-// left to the user.
+// powershellValue runs one expression in the given PowerShell and returns
+// what it prints.
+func powershellValue(exe, expr string) string {
+	out, err := exec.Command(exe, "-NoProfile", "-NonInteractive", "-Command", expr).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// installShellHook adds the hook to the PowerShell profile - of Windows
+// PowerShell and of PowerShell 7, where each is installed - provided that
+// PowerShell will load the profile. Under a restrictive execution policy a
+// profile only produces an error in every new window, so in that case the
+// step is explained and left to the user.
 func installShellHook() string {
-	return "Optional: to use \"sshc set --session\", load the shell hook from your PowerShell profile:\n" +
+	line := hookLine("powershell")
+	manual := "To use \"sshc set -s\", \"sshc use\" and Tab completion, load the shell hook from your PowerShell profile:\n" +
 		"    if (!(Test-Path $PROFILE)) { New-Item -Force -ItemType File $PROFILE | Out-Null }\n" +
-		"    Add-Content $PROFILE '" + hookLine("powershell") + "'\n" +
+		"    Add-Content $PROFILE '" + line + "'\n" +
 		"If new windows then report that running scripts is disabled, allow your own profile with:\n" +
 		"    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"
+	var done, skipped []string
+	for _, exe := range []string{"powershell", "pwsh"} {
+		if _, err := exec.LookPath(exe); err != nil {
+			continue
+		}
+		switch strings.ToLower(powershellValue(exe, "Get-ExecutionPolicy")) {
+		case "remotesigned", "unrestricted", "bypass":
+		default:
+			skipped = append(skipped, exe)
+			continue
+		}
+		profile := powershellValue(exe, "$PROFILE")
+		if profile == "" {
+			skipped = append(skipped, exe)
+			continue
+		}
+		if data, err := os.ReadFile(profile); err == nil && strings.Contains(string(data), line) {
+			done = append(done, "already in "+profile)
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(profile), 0o755); err != nil {
+			skipped = append(skipped, exe)
+			continue
+		}
+		f, err := os.OpenFile(profile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			skipped = append(skipped, exe)
+			continue
+		}
+		_, err = f.WriteString("\r\n# Added by sshc --install\r\n" + line + "\r\n")
+		f.Close()
+		if err != nil {
+			skipped = append(skipped, exe)
+			continue
+		}
+		done = append(done, "one line appended to "+profile)
+	}
+	if len(done) == 0 {
+		return "Optional: " + manual
+	}
+	msg := "Added the shell hook (" + strings.Join(done, "; ") + ")."
+	if len(skipped) > 0 {
+		msg += "\nNote: " + strings.Join(skipped, " and ") + " does not allow profile scripts, so it was left alone. " + manual
+	}
+	return msg
 }

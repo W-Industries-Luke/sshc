@@ -233,6 +233,17 @@ KEYRING
 	check "credential store: set, connect, unset" 0 "logged-in" dbus-run-session -- bash keyring.sh
 	check "credential store keeps it out of the file" 0 "password = @credential-store" \
 		dbus-run-session -- bash keyring.sh
+	cat >migrate.sh <<MIGRATE
+eval "\$(printf '\n' | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null)"
+sleep 1
+SSHC_CREDENTIAL_STORE=off sshc set -H plainhost plain-secret >/dev/null
+unset SSHC_CREDENTIAL_STORE
+sshc migrate
+grep -c plain-secret bin/sshc.conf
+secret-tool lookup service sshc account 'host plainhost/password'
+sshc unset -H plainhost >/dev/null
+MIGRATE
+	check "migrate moves plain text into the store" 0 "plain-secret" dbus-run-session -- bash migrate.sh
 else
 	echo "skip credential store (needs gnome-keyring, libsecret-tools and dbus)"
 fi
@@ -242,6 +253,12 @@ check "installed binary runs"        0 "sshc "    fakehome/.local/bin/sshc --ver
 check "--install moved the config"   0 "profile = work" cat fakehome/.local/bin/sshc.conf
 check "--install added a PATH line"  0 'export PATH="$HOME/.local/bin:$PATH"' cat fakehome/.bashrc
 check "--install added the shell hook" 0 'eval "$(sshc --shell-init posix)"' cat fakehome/.bashrc
+check "use switches the profile of one terminal" 0 "[work]" \
+	bash -c 'eval "$(sshc --shell-init bash)"; sshc use work 2>/dev/null; echo "[$SSHC_PROFILE]"'
+check "use without the hook explains" 1 "needs the sshc shell hook" sshc use work
+check "doctor reports on the setup"  1 "the shell hook is not loaded" sshc doctor
+check "doctor is content with the hook loaded" 0 "no problems found" \
+	bash -c 'eval "$(sshc --shell-init bash)"; sshc doctor'
 check "set -s through the hook"      0 "hi" \
 	env -u SSHC_PASSWORD "PW=$PW" bash -c 'eval "$(sshc --shell-init bash)"; sshc set -s "$PW" 2>/dev/null; sshc -F cfg -o PubkeyAuthentication=no kbd echo hi'
 check "unset -s through the hook"    0 "[]" \

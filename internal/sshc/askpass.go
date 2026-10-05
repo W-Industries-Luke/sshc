@@ -18,6 +18,11 @@ const (
 	envConfig = "SSHC_ASKPASS_CONFIG" // config file in use, may be empty
 	envTool   = "SSHC_ASKPASS_TOOL"   // the tool sshc was asked to run
 	envNoTTY  = "SSHC_ASKPASS_NOTTY"  // set when nobody can be asked on the terminal
+	envHook   = "SSHC_HOOK"           // set by the shell hook, to the shell it runs in
+
+	// envNoPrompt is for the user to set: never ask on the terminal, fail
+	// instead. Meant for scripts and scheduled jobs.
+	envNoPrompt = "SSHC_NO_PROMPT"
 )
 
 // Only two password prompt shapes are answered automatically, and in both the
@@ -44,6 +49,15 @@ var rePassphrase = regexp.MustCompile(`^Enter passphrase for key '(.+)': ?$`)
 // written by a local program and cannot come from a server.
 var reAddPassphrase = regexp.MustCompile(`^Enter passphrase for (.+?)(?: \(will confirm each use\))?: ?$`)
 
+// A keyboard-interactive prompt that is not for the password: possibly a
+// one-time code. The text after "(user@host) " is the server's, so a code is
+// only supplied to a host that has one configured, and only when the prompt
+// reads like a request for one.
+var (
+	reKbdAny = regexp.MustCompile(`^\((\S+)@([^@)\s]+)\) (.+)$`)
+	reOTP    = regexp.MustCompile(`(?i)verification code|one[- ]time|\botp\b|passcode|authenticat|\btoken\b|2fa|two[- ]factor|security code`)
+)
+
 var reUnsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
 func parsePrompt(prompt string) (user, host string, ok bool) {
@@ -67,8 +81,9 @@ func isAskpassCall(args []string) bool {
 // askTTY puts the prompt to the human on the terminal and relays the answer
 // to ssh. Without a terminal it fails, and ssh treats that as no answer.
 func askTTY(prompt string, echo bool) int {
-	// Several connections at once ("sshc each") cannot share the terminal.
-	if os.Getenv(envNoTTY) != "" {
+	// Several connections at once ("sshc each") cannot share the terminal,
+	// and a script can ask never to be prompted.
+	if os.Getenv(envNoTTY) != "" || os.Getenv(envNoPrompt) != "" {
 		return 1
 	}
 	in, out, err := openTTY()
@@ -124,6 +139,10 @@ func askpassMain(prompt string) int {
 		what, id = "password for "+user+"@"+host, "host."+host
 		find = func(r *resolver) (string, string, string) { return r.lookup(user, host) }
 		debugf("prompt is for user %q at host %q; destinations: %q", user, host, os.Getenv(envDests))
+	} else if k := reKbdAny.FindStringSubmatch(prompt); k != nil && reOTP.MatchString(k[3]) {
+		what, id = "one-time code for "+k[1]+"@"+k[2], "otp."+k[2]
+		find = func(r *resolver) (string, string, string) { return r.lookupOTP(k[1], k[2]) }
+		debugf("prompt asks %q at %q for a one-time code", k[1], k[2])
 	} else {
 		debugf("not a prompt sshc answers; asking on the terminal")
 		// ssh-add's second ask has its own wording.
@@ -142,6 +161,9 @@ func askpassMain(prompt string) int {
 		// Say so once; later asks are retries of what the human typed.
 		if len(prev) > 0 {
 			warnf("the stored %s (from %s) was not accepted", what, strings.TrimSpace(string(prev)))
+			if cfg, err := loadConfig(os.Getenv(envConfig)); err == nil {
+				auditLog(cfg, "rejected", what, strings.TrimSpace(string(prev)))
+			}
 			_ = os.WriteFile(mark, nil, 0o600)
 		}
 		return askTTY(prompt, false)
@@ -165,6 +187,7 @@ func askpassMain(prompt string) int {
 		warnf("%v", err)
 		return askTTY(prompt, false)
 	}
+	auditLog(cfg, "supplied", what, from)
 	fmt.Println(secret)
 	return 0
 }

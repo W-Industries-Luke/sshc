@@ -66,8 +66,12 @@ What it does:
 - **Finds your hosts**: a [host picker](#picking-a-host) when you run `sshc`
   on its own, and Tab completion of host names in bash, zsh, fish and
   PowerShell.
+- **Handles one-time codes** too, for hosts that ask for a
+  [verification code](#one-time-codes) after the password.
 - **Installs in CI** as a [GitHub Action](#github-actions), for deploying to
   hosts that only take a password.
+- **Looks after itself**: [`sshc doctor`](#when-something-is-off-sshc-doctor)
+  diagnoses the setup and `sshc update` installs the latest release.
 
 > Where you can, prefer an SSH key with
 > [`ssh-agent`](#a-safer-alternative-ssh-agent): it gives you the same
@@ -92,12 +96,15 @@ What it does:
   - [Several hosts at once](#several-hosts-at-once)
   - [git, ansible and other programs: sshc run](#git-ansible-and-other-programs-sshc-run)
   - [Unlocking a key for everything: sshc ssh-add](#unlocking-a-key-for-everything-sshc-ssh-add)
+  - [When something is off: sshc doctor](#when-something-is-off-sshc-doctor)
   - [Moving a host to a key](#moving-a-host-to-a-key)
 - [Storing passwords and passphrases](#storing-passwords-and-passphrases)
   - [Environment variables](#environment-variables)
     - [The shell hook](#the-shell-hook)
   - [The credential store](#the-credential-store)
   - [Password managers](#password-managers)
+  - [One-time codes](#one-time-codes)
+  - [Profiles](#profiles)
   - [Config file](#config-file)
   - [Which one is used](#which-one-is-used)
   - [Jump hosts](#jump-hosts)
@@ -210,6 +217,14 @@ scoop install sshc
 brew install W-Industries-Luke/tap/sshc                                   # macOS or Linux, Homebrew
 ```
 
+**Linux package** - each release also has `.deb` and `.rpm` files, for
+`amd64` and `arm64`, which install `sshc` to `/usr/bin` with its man page:
+
+```console
+$ sudo apt install ./sshc_0.5.0_amd64.deb        # Debian, Ubuntu
+$ sudo dnf install ./sshc-0.5.0-1.x86_64.rpm     # Fedora, RHEL
+```
+
 **Manual download** - download the one file for your system, then run it once
 with `--install`. That copies it to a per-user folder and puts that folder on
 your `PATH`.
@@ -259,13 +274,24 @@ $ sshc --version
 After that you can delete the downloaded file. `sshc --install <directory>`
 installs somewhere else; running `--install` from a newer download upgrades.
 On Linux and macOS, `--install` also adds the [shell hook](#the-shell-hook)
-that `sshc set -s` needs. `SHA256SUMS` on the release page lets you verify the
-download.
+that `sshc set -s` needs; on Windows it does so when PowerShell's script
+policy allows profiles to load, and otherwise prints the two lines to run.
 
-**Upgrading.** Use the method you installed with: run the installer script
-again, `scoop update sshc`, or `brew upgrade sshc`. Then open a new terminal,
-so that the [shell hook](#the-shell-hook) of the new version is loaded.
-`sshc --install` warns if it finds another copy ahead of it on your `PATH`.
+**Verifying a download.** Every release lists its files in `SHA256SUMS`, and
+the install scripts, `sshc update` and the GitHub Action check that before
+running anything. The files are built by GitHub Actions from the tagged
+commit and carry a build attestation, which the GitHub CLI can check:
+
+```console
+$ gh attestation verify sshc-linux-amd64 --repo W-Industries-Luke/sshc
+```
+
+**Upgrading.** `sshc update` downloads the latest release, checks it against
+its checksum and replaces the copy you are running (`sshc update --check`
+only tells you whether there is one). If sshc came from a package manager it
+says so instead: use `scoop update sshc`, `brew upgrade sshc`, or your
+system's package tool. Afterwards open a new terminal, so that the
+[shell hook](#the-shell-hook) of the new version is loaded.
 
 **From source instead** (needs [Go](https://go.dev/dl/) 1.26 or newer):
 
@@ -316,7 +342,7 @@ SSHC_PASSPHRASE is set for this terminal session only.
 It **stays in effect until you set it again or close the terminal**: every
 `sshc` command in that terminal uses it, and no other terminal can see it.
 `-s` relies on a small [shell hook](#the-shell-hook), which the installer sets
-up on Linux and macOS and is two lines to add on Windows.
+up for you (`sshc doctor` tells you whether it is loaded).
 
 **For every terminal, until you remove it** - leave `-s` off. The secret goes
 into your system's [credential store](#the-credential-store) (Windows
@@ -399,10 +425,14 @@ Besides running the tools above, sshc has a few commands of its own:
 | `sshc hosts` | list the hosts in your ssh config |
 | `sshc each <hosts> -- <command>` | [run a command on several hosts](#several-hosts-at-once) |
 | `sshc run <command>` | [run any program that uses ssh](#git-ansible-and-other-programs-sshc-run), such as git |
+| `sshc use [NAME]` | show or switch the [active profile](#profiles) |
+| `sshc migrate` | move plain-text entries into the credential store |
+| `sshc doctor` | [check the setup](#when-something-is-off-sshc-doctor) and say how to fix it |
+| `sshc update` | install the latest release |
 | `sshc install` | copy sshc to a per-user folder and put it on `PATH` |
 | `sshc init` | create a config file template |
 | `sshc shell-init [shell]` | print the [shell hook](#the-shell-hook) |
-| `sshc help`, `sshc version` | also `-h` and `-v`, when given on their own |
+| `sshc help [COMMAND]`, `sshc version` | also `-h` and `-v`, when given on their own |
 
 `check`, `install`, `init`, `shell-init`, `help` and `version` can also be
 written with a leading `--` (`sshc --check ...`).
@@ -418,6 +448,7 @@ combine:
 | `-k NAME` | `--key NAME` | the passphrase of one key |
 | `-P NAME` | `--profile NAME` | a profile other than the active one |
 | `-c CMD` | `--command CMD` | do not store it; [run CMD](#password-managers) each time to fetch it |
+| `-o` | `--otp` | a [one-time code](#one-time-codes); needs `-H` and `-c` |
 | `-f` | `--plain` | keep it in the config file, in plain text |
 | `-n` | `--no-clear` | do not clear the screen afterwards |
 | `-h` | `--help` | show the options |
@@ -515,6 +546,29 @@ It needs an agent to be running; see the ssh-agent section for starting one
 (on Windows it is a service you enable once). Put `sshc ssh-add` in your shell
 startup file and your key is unlocked in every session without typing.
 
+### When something is off: `sshc doctor`
+
+```console
+$ sshc doctor
+
+  ok       OpenSSH client: OpenSSH_9.6p1
+  ok       sshc 0.5.0 at /home/luke/.local/bin/sshc
+  PROBLEM  the shell hook is not loaded in this terminal
+           -> add this line to your shell's startup file and open a new terminal:
+              command -v sshc >/dev/null 2>&1 && eval "$(sshc --shell-init posix)"
+  ok       config file: /home/luke/.local/bin/sshc.conf
+  ok       credential store: the system keyring (Secret Service)
+  note     ssh-agent is not reachable; only needed for "sshc ssh-add"
+
+Warning: 1 problem(s) found; each has a suggested fix above.
+
+```
+
+It checks the OpenSSH version, whether more than one copy of sshc is on your
+`PATH`, the shell hook, the config file and its permissions, the credential
+store and whether saved entries are really in it, and ssh-agent. Run it
+first when sshc does not behave as this page says.
+
 ### Moving a host to a key
 
 `ssh-copy-id` installs your public key on the server, which normally costs one
@@ -576,8 +630,9 @@ their options. It has to be loaded when your shell starts:
 | fish | `~/.config/fish/config.fish` | `sshc --shell-init fish \| source` |
 | PowerShell | the file `$PROFILE` names | `sshc --shell-init powershell \| Out-String \| Invoke-Expression` |
 
-On Linux and macOS, the installer script and `sshc --install` add the line for
-you. On Windows, run these two lines once:
+The installer script and `sshc install` add the line for you. On Windows they
+can only do that when PowerShell's script policy lets a profile load; if it
+does not, they say so, and you run these two lines once:
 
 ```powershell
 if (!(Test-Path $PROFILE)) { New-Item -Force -ItemType File $PROFILE | Out-Null }
@@ -711,6 +766,45 @@ Things to know:
 - `sshc check` and `sshc list` show the command but never run it.
 - A command is not a secret, so it is written to the config file as it is.
 
+### One-time codes
+
+Some hosts ask for a verification code after the password. sshc can supply
+it from a command, in the same way as from a password manager:
+
+```console
+$ sshc set -o -H w.go-2 -c 'oathtool --totp -b JBSWY3DPEHPK3PXP'
+$ sshc set -o -H w.go-2 -c 'op item get "w.go-2" --otp'
+```
+
+A code is always fetched by a command (it changes every time), and always
+for one named host: there is no "active" code. The wording of that second
+question is chosen by the server, so sshc answers it only for a host you set
+a code up for, and only when the question reads like a request for one -
+"Verification code", "One-time password", "Passcode" and the like. Anything
+else still goes to your terminal.
+
+Keep in mind what a second factor is for: a command that produces the code
+on the same machine as the stored password turns two factors back into one.
+
+### Profiles
+
+A profile is a named pair of login password and key passphrase - `work`,
+`home`, one per customer. Exactly one is active, and it is the one sshc
+offers and `sshc set` stores into.
+
+```console
+$ sshc set -P work            # store a password in the profile "work"
+$ sshc use work               # this terminal now uses it
+$ sshc use --save work        # make it the default for every terminal
+$ sshc use                    # show the active profile and the others
+$ sshc use --default          # this terminal: back to the default
+```
+
+`sshc use NAME` changes one terminal (through the shell hook, by setting
+`SSHC_PROFILE`), so two terminals can work with two profiles side by side. For
+a single command, set the variable just for it: `SSHC_PROFILE=home sshc
+w.go-2`.
+
 ### Config file
 
 The config file, `sshc.conf`, holds sshc's settings and the list of what is
@@ -746,8 +840,20 @@ text (`password = hunter2`), which is what `sshc set --plain` does. Because it
 may hold plain-text secrets, on Linux and macOS sshc refuses to read the file
 unless it is owned by you with mode 600.
 
-Switch profile for one shell with `export SSHC_PROFILE=home`, or for one
-command with `SSHC_PROFILE=home sshc w.go-2`.
+The file can also switch on a **log** of what sshc supplies:
+
+```ini
+log = yes
+```
+
+Every prompt sshc answers is then recorded in `sshc.log` next to the config
+file (or at a path you give instead of `yes`): the time, what was asked for,
+which entry answered it and through which tool - never the secret. It also
+records a stored secret being rejected.
+
+If you saved secrets before sshc used the credential store, or with
+`--plain`, `sshc migrate` moves every plain-text entry into the store in one
+go.
 
 `sshc set` creates the file when it first needs it, next to the sshc
 executable (`sshc init` creates just the template). If that location
@@ -831,6 +937,8 @@ What sshc does:
   owned by you with mode 600), since that file may hold plain-text secrets.
 - **Keeps secrets off command lines and out of its own output.** No command
   prints a stored value back.
+- **Supplies a one-time code only where you set one up**, for that host
+  alone.
 - **Runs a configured command directly, never through a shell**, and inserts
   the host, user and key names as whole words, so a hostile host name cannot
   add to the command.
@@ -889,7 +997,7 @@ repository is also an action that installs sshc on the runner:
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: W-Industries-Luke/sshc@v0.4.0
+  - uses: W-Industries-Luke/sshc@v0.5.0
   - run: |
       mkdir -p ~/.ssh && echo "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
       sshc scp -r ./site deploy@example.com:/var/www
@@ -913,6 +1021,9 @@ there is nobody to answer the "are you sure" question in a workflow.
   to check the client version and resolve the destination.
 
 ## Troubleshooting
+
+Start with `sshc doctor`: it checks for most of what follows and prints the
+fix.
 
 **It still asks me for the password.** Run `sshc check <destination>` with
 the same arguments. If it says "no stored password", nothing matching is
@@ -994,7 +1105,9 @@ runs the real tool, so it has to be installed.
 
 **In a script or cron job it fails instead of prompting.** That is intended:
 with no terminal there is nobody to ask, so a host without a matching stored
-password is a failed login rather than a hang.
+password is a failed login rather than a hang. A script started from a
+terminal still has one; set `SSHC_NO_PROMPT=1` to get the same behaviour
+there.
 
 ## Development
 
@@ -1006,17 +1119,29 @@ internal/sshc/      the program, one file per concern (see the comment at the
                     top of cli.go for a guide), with its unit tests alongside
 install.sh          one-line installers for Linux/macOS and Windows; they are
 install.ps1         fetched by URL, so they stay at the top level
-test/e2e.sh         end-to-end tests against a real sshd in Docker
+internal/e2e/       end-to-end tests that run on every platform: the real ssh
+                    client against an SSH server built into the test
+test/e2e.sh         further end-to-end tests against a real sshd in Docker
+                    (scp, sftp, rsync, ssh-copy-id, the Linux keyring)
+docs/sshc.1         the man page
 packaging/          where sshc is published and how to update each channel
 action.yml          the GitHub Action that installs sshc on a runner
 .github/workflows/  CI: unit tests on Linux, Windows and macOS, plus e2e
 ```
 
 ```console
-$ make test     # go vet + unit tests
+$ make test     # go vet, unit tests and the built-in end-to-end tests
 $ make e2e      # real ssh/scp/sftp against an sshd in Docker
 $ make dist     # cross-compile release binaries
 ```
+
+Neither test suite contacts a real server or uses real credentials: both
+start a throwaway SSH server with a made-up user for the length of the test.
+
+Releases are built and published by `.github/workflows/release.yml` when a
+version tag is pushed; see [packaging/README.md](packaging/README.md).
+[SECURITY.md](SECURITY.md) covers reporting a vulnerability and the threat
+model, and [CHANGELOG.md](CHANGELOG.md) what changed in each version.
 
 ## License
 

@@ -43,6 +43,9 @@ What to store:
                     ssh, optionally with "user@"
   -k, --key NAME    the passphrase of one key; NAME is the key's file name
                     (id_ed25519) or its full path
+  -o, --otp         the one-time code a host asks for after the password.
+                    Always fetched by a command, for one host:
+                    sshc set -o -H NAME -c 'oathtool --totp -b SECRET'
 
 Other options:
   -P, --profile NAME  use that profile instead of the active one
@@ -226,7 +229,7 @@ func deleteConfigValue(lines []string, section, key string) ([]string, bool) {
 // take the next word (or the rest of the cluster) as their value.
 var (
 	shortFlags = map[byte]string{
-		's': "--session", 'p': "--passphrase", 'f': "--plain", 'n': "--no-clear", 'h': "--help",
+		's': "--session", 'p': "--passphrase", 'f': "--plain", 'n': "--no-clear", 'h': "--help", 'o': "--otp",
 	}
 	shortWithValue = map[byte]string{'H': "--host", 'k': "--key", 'P': "--profile", 'c': "--command"}
 )
@@ -272,6 +275,7 @@ type target struct {
 	profile, host, key  string
 	command             string // fetch the secret by running this instead of storing it
 	passphrase, session bool
+	otp                 bool // the one-time code a host asks for after the password
 	plain, clear        bool
 	value               string
 	haveValue           bool
@@ -305,6 +309,8 @@ func parseTarget(args []string, usage string, takesValue bool, out *os.File) (t 
 			t.clear = false
 		case arg == "--passphrase":
 			t.passphrase = true
+		case arg == "--otp":
+			t.otp = true
 		case name == "--command" && takesValue:
 			if !attached {
 				i++
@@ -361,6 +367,9 @@ func parseTarget(args []string, usage string, takesValue bool, out *os.File) (t 
 	if t.session && t.plain {
 		return fail("--session and --plain are different places to keep it; use one")
 	}
+	if t.otp && (t.host == "" || t.passphrase || t.session || t.plain || t.haveValue || takesValue && t.command == "") {
+		return fail("a one-time code is fetched by a command, for one host: use --otp with --host and --command")
+	}
 	if t.command != "" && (t.session || t.plain || t.haveValue) {
 		return fail("--command replaces the stored value; it cannot be combined with --session, --plain or a value")
 	}
@@ -369,6 +378,9 @@ func parseTarget(args []string, usage string, takesValue bool, out *os.File) (t 
 
 // what is the kind of secret: "password" or "passphrase".
 func (t target) what() string {
+	if t.otp {
+		return "otp"
+	}
 	if t.key != "" || t.passphrase {
 		return "passphrase"
 	}
@@ -409,8 +421,8 @@ func (t target) section(cfg *config) (section, profile string) {
 }
 
 // hookMissing explains that --session cannot work in this terminal.
-func hookMissing() int {
-	failf("--session needs the sshc shell hook, which is not loaded in this terminal.",
+func hookMissing(what string) int {
+	failf(what+" needs the sshc shell hook, which is not loaded in this terminal.",
 		"Add this line to your shell's startup file, then open a new terminal:\n    "+hookLine(defaultShellKind()))
 	return 1
 }
@@ -439,7 +451,7 @@ func cmdSet(args []string) int {
 
 	if t.session {
 		if _, ok := emitAssignment(emit, "X", ""); !ok {
-			return hookMissing()
+			return hookMissing("--session")
 		}
 		// A shell runs a piped-into function in a subshell, where the
 		// variable would be set and immediately lost.
@@ -596,7 +608,7 @@ func cmdUnset(args []string) int {
 	if t.session {
 		code, ok := emitUnset(emit, t.envName())
 		if !ok {
-			return hookMissing()
+			return hookMissing("--session")
 		}
 		fmt.Println(code)
 		u := newUI(out)
@@ -687,7 +699,7 @@ func cmdList(args []string) int {
 			kind, _, _ := strings.Cut(section, " ")
 			isCommand := strings.HasSuffix(key, "_command")
 			key = strings.TrimSuffix(key, "_command")
-			if v == "" || key != "password" && key != "passphrase" || kind != "profile" && kind != "host" && kind != "key" {
+			if v == "" || key != "password" && key != "passphrase" && key != "otp" || kind != "profile" && kind != "host" && kind != "key" {
 				continue
 			}
 			place := "plain text in the config file"

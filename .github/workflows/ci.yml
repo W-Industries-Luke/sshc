@@ -15,7 +15,11 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
+      # Includes the end-to-end tests in internal/e2e, which run the real
+      # ssh client against an SSH server built into the test.
       - run: go test ./...
+        env:
+          SSHC_E2E_NETWORK: 1
       - run: go build .
   e2e:
     runs-on: ubuntu-latest

@@ -23,10 +23,10 @@ import (
 	"golang.org/x/term"
 )
 
-const (
-	prog    = "sshc"
-	version = "0.4.0"
-)
+const prog = "sshc"
+
+// version is a variable so that a test build can pretend to be an old one.
+var version = "0.5.0"
 
 const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
        sshc scp  [scp options] source ... target
@@ -46,6 +46,9 @@ Storing secrets:
   sshc unset [-s] [-p]          remove one ("sshc unset -h")
   sshc list                     show what is stored and where, not the values
   sshc check [tool] args...     show where the password would come from
+  sshc use [NAME]               show or switch the active profile
+  sshc migrate                  move plain-text entries into the credential
+                                store
 
 More ways to connect:
   sshc                          on its own: pick a host from your ssh config
@@ -60,10 +63,13 @@ More ways to connect:
 Setup:
   sshc install [directory]      copy sshc to a per-user directory, put it on
                                 your PATH and set up the shell hook
+  sshc update [--check]         install the latest release
+  sshc doctor                   check the setup and say how to fix problems
   sshc init                     create a config file template
   sshc shell-init [shell]       print the shell hook: "set -s" and tab
                                 completion need it
-  sshc help | version           also -h and -v, when given on their own
+  sshc help [COMMAND]           this text, or the help of one command
+  sshc version                  also -v (and -h for help) when given alone
 
 Options of set and unset. Letters combine: "sshc set -sp" stores a key
 passphrase for this terminal only.
@@ -74,6 +80,8 @@ passphrase for this terminal only.
   -P, --profile NAME    a profile other than the active one
   -c, --command CMD     do not store it: run CMD (a password manager) each
                         time and use what it prints (set only)
+  -o, --otp             the one-time code a host asks for after the password;
+                        needs -H and -c
   -f, --plain           keep it in the config file, in plain text (set only)
   -n, --no-clear        do not clear the screen afterwards (set only)
   -h, --help            the full help for set or unset
@@ -95,6 +103,10 @@ section, $SSHC_PASSPHRASE, then "passphrase =" in the active profile.
 Saved entries are listed in the config file; their values are kept in your
 system's credential store, fetched by a command you name, or - where there is
 no store - in the file itself.
+
+Other variables: SSHC_PROFILE picks the profile, SSHC_NO_PROMPT=1 makes sshc
+fail instead of asking on the terminal (for scripts), SSHC_DEBUG=1 shows what
+it decides, NO_COLOR=1 turns colour off.
 
 Config file: $SSHC_CONFIG, else sshc.conf next to the sshc executable, else
 sshc/sshc.conf in your user config directory. On Linux and macOS it must be
@@ -168,6 +180,13 @@ func Main(args []string) int {
 	// ssh options, and "sshc -c x host" has to stay an ssh command.
 	switch args[0] {
 	case "--help", "help":
+		// "sshc help set" and the like show that command's own help.
+		if len(args) == 2 {
+			if text, ok := helpTopics[args[1]]; ok {
+				fmt.Print(text)
+				return 0
+			}
+		}
 		fmt.Print(usageText)
 		return 0
 	case "--version", "version":
@@ -197,10 +216,27 @@ func Main(args []string) int {
 		return cmdPick(args[1:])
 	case "--complete":
 		return cmdComplete(args[1:])
+	case "use":
+		return cmdUse(args[1:])
+	case "migrate":
+		return cmdMigrate(args[1:])
+	case "update":
+		return cmdUpdate(args[1:])
+	case "doctor":
+		return cmdDoctor(args[1:])
 	}
 	tool := "ssh"
 	if isTool(args[0]) {
 		tool, args = args[0], args[1:]
 	}
 	return runTool(tool, args)
+}
+
+// helpTopics are the commands with a help text of their own.
+var helpTopics = map[string]string{
+	"set":   setUsage,
+	"unset": unsetUsage,
+	"use":   useUsage,
+	"run":   runUsage,
+	"each":  eachUsage,
 }

@@ -238,20 +238,7 @@ func (r *resolver) lookupPassphrase(keyPath string) (passphrase, from, note stri
 // that happens to ask.
 func (r *resolver) lookup(user, host string) (password, from, note string) {
 	r.vars = map[byte]string{'h': host, 'u': user}
-	names := []string{}
-	isDest := false
-	for _, d := range r.dests {
-		if strings.EqualFold(d.hostname, host) || strings.EqualFold(d.alias, host) {
-			isDest = true
-			names = append(names, d.alias)
-		}
-	}
-	names = append(names, host)
-
-	var keys []string
-	for _, n := range names {
-		keys = append(keys, user+"@"+n, n)
-	}
+	keys, isDest := r.hostKeys(user, host)
 	for _, k := range keys {
 		if v, name := r.specificEnv(hostEnvPrefix, k); v != "" {
 			return v, "environment variable " + name, ""
@@ -292,4 +279,35 @@ func compactStrings(s []string) []string {
 		}
 	}
 	return out
+}
+
+// hostKeys lists the names under which an entry for user@host may be stored:
+// the name ssh reports and any alias the user typed for it, each with and
+// without the user. isDest says whether host was named on the command line.
+func (r *resolver) hostKeys(user, host string) (keys []string, isDest bool) {
+	names := []string{}
+	for _, d := range r.dests {
+		if strings.EqualFold(d.hostname, host) || strings.EqualFold(d.alias, host) {
+			isDest = true
+			names = append(names, d.alias)
+		}
+	}
+	names = append(names, host)
+	for _, n := range names {
+		keys = append(keys, user+"@"+n, n)
+	}
+	return keys, isDest
+}
+
+// lookupOTP finds the one-time code for user@host. A code only ever comes
+// from a command configured for that very host.
+func (r *resolver) lookupOTP(user, host string) (code, from, note string) {
+	r.vars = map[byte]string{'h': host, 'u': user}
+	keys, _ := r.hostKeys(user, host)
+	for _, k := range keys {
+		if v, from, note := r.secret("host "+k, "otp"); v != "" || note != "" {
+			return v, from, note
+		}
+	}
+	return "", "", ""
 }

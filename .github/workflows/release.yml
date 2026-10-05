@@ -1,0 +1,66 @@
+# Publishes a release when a version tag is pushed. Everything in the release
+# is built here, from the tagged commit, and attested - not on anyone's own
+# machine.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      # Optional: a token that may write to the scoop-bucket and homebrew-tap
+      # repositories. Without it those two are left for a manual update.
+      PACKAGING_TOKEN: ${{ secrets.PACKAGING_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Check that the tag matches the version in the source
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          if ! grep -q "var version = \"$version\"" internal/sshc/cli.go; then
+            echo "tag $GITHUB_REF_NAME does not match the version in internal/sshc/cli.go" >&2
+            exit 1
+          fi
+          if ! grep -q "^## $version\b" CHANGELOG.md; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >>"$GITHUB_ENV"
+      - run: go vet ./...
+      - run: go test ./...
+      - name: Build the binaries
+        run: make dist
+      - name: Build the Linux packages
+        run: packaging/build-packages.sh "$VERSION"
+      - name: Checksums
+        run: cd dist && sha256sum * >SHA256SUMS
+      - name: Attest where the files were built
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+      - name: Release notes from the changelog
+        run: |
+          awk -v v="$VERSION" '
+            /^## / { on = ($2 == v) ; next }
+            on { print }
+          ' CHANGELOG.md >notes.md
+          cat notes.md
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "sshc $VERSION" --notes-file notes.md
+      - name: Update Scoop and Homebrew
+        if: env.PACKAGING_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGING_TOKEN }}
+        run: packaging/update-manifests.sh "$VERSION"
+      - name: Scoop and Homebrew were not updated
+        if: env.PACKAGING_TOKEN == ''
+        run: echo "::notice::No PACKAGING_TOKEN secret is set, so run packaging/update-manifests.sh $VERSION by hand."

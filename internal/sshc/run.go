@@ -268,6 +268,9 @@ func cmdCheck(args []string) int {
 		default:
 			lines = append(lines, "  no stored password; you would be prompted")
 		}
+		if code, from, _ := r.lookupOTP(d.user, d.hostname); code != "" {
+			lines = append(lines, "  one-time code from "+from)
+		}
 		for _, key := range d.keys {
 			file := key
 			if file == "~" || strings.HasPrefix(file, "~/") || strings.HasPrefix(file, "~\\") {

@@ -13,12 +13,13 @@ import (
 // a wrapped tool.
 var ownCommands = []string{
 	"set", "unset", "list", "check", "hosts", "pick", "each", "run",
+	"use", "migrate", "update", "doctor",
 	"install", "init", "shell-init", "help", "version",
 	"ssh", "scp", "sftp", "rsync", "ssh-copy-id", "ssh-add",
 }
 
 var setOptions = []string{
-	"--session", "--passphrase", "--host", "--key", "--profile", "--plain", "--command", "--no-clear", "--help",
+	"--session", "--passphrase", "--host", "--key", "--profile", "--plain", "--command", "--otp", "--no-clear", "--help",
 }
 
 // privateKeys lists the key files in ~/.ssh by name.
@@ -77,7 +78,11 @@ func completions(words []string, cword int) []string {
 	var candidates []string
 	switch {
 	case cword <= 1:
-		candidates = append(append([]string{}, ownCommands...), hosts...)
+		candidates = append([]string{}, hosts...)
+		// "user@..." can only be a host.
+		if !strings.Contains(cur, "@") {
+			candidates = append(candidates, ownCommands...)
+		}
 	case command == "set" || command == "unset":
 		switch prev {
 		case "-H", "--host":
@@ -100,7 +105,14 @@ func completions(words []string, cword int) []string {
 			}
 		}
 	case command == "list" || command == "hosts" || command == "pick" || command == "init" ||
-		command == "install" || command == "help" || command == "version" || command == "ssh-add":
+		command == "install" || command == "version" || command == "ssh-add":
+	case command == "use":
+		if !strings.HasPrefix(cur, "-") {
+			candidates = profileNames()
+		}
+	case command == "migrate" || command == "update" || command == "doctor":
+	case command == "help":
+		candidates = []string{"set", "unset", "use", "run", "each"}
 	case command == "shell-init":
 		candidates = []string{"bash", "zsh", "fish", "powershell"}
 	case command == "run":

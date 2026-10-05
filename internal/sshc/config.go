@@ -36,8 +36,14 @@ const configTemplate = `# sshc configuration.
 # "sshc set <password>" clears the screen afterwards; "no" turns that off.
 #clear_on_set = no
 
-# The active profile. $SSHC_PROFILE overrides this per shell.
+# The active profile. $SSHC_PROFILE, or "sshc use NAME", overrides this for
+# one terminal.
 #profile = work
+
+# Keep a record of every prompt sshc answers: when, for what, and where the
+# secret came from - never the secret. "yes" writes sshc.log next to this
+# file; a path writes there.
+#log = yes
 
 # A profile can hold a login password, the passphrase of your SSH key, or both.
 #[profile work]
