@@ -24,10 +24,11 @@ const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
        sshc rsync [rsync options] source ... target
        sshc ssh-copy-id [ssh-copy-id options] destination
 
-Runs the tool and answers the password prompt from a stored password.
-Everything after the optional tool name is handed to that tool unchanged.
+Runs the tool and answers its prompt for a login password, or for the
+passphrase of an SSH key, from what you have stored. Everything after the
+optional tool name is handed to that tool unchanged.
 
-  sshc set [password]           save a password (see "sshc set --help")
+  sshc set [password]           save a password or passphrase ("sshc set --help")
   sshc --check [tool] args...   show where the password would come from
   sshc --init                   create a config file template
   sshc --help | --version
@@ -39,6 +40,9 @@ Password sources, first match wins:
   4. [profile <name>]        the active profile in the config file, selected
                              by $SSHC_PROFILE or the file's "profile =" line
 
+Key passphrases work the same way: $SSHC_PASSPHRASE_<KEYFILE>, a [key <name>]
+section, $SSHC_PASSPHRASE, then "passphrase =" in the active profile.
+
 Config file: $SSHC_CONFIG, else sshc.conf next to the sshc executable, else
 sshc/sshc.conf in your user config directory. On Linux and macOS it must be
 private to you (chmod 600).
@@ -46,6 +50,14 @@ private to you (chmod 600).
 
 func warnf(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, prog+": "+format+"\n", a...)
+}
+
+// debugf traces what sshc decides when $SSHC_DEBUG is set. It never prints a
+// password.
+func debugf(format string, a ...any) {
+	if os.Getenv("SSHC_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, prog+"[debug]: "+format+"\n", a...)
+	}
 }
 
 func isTool(s string) bool {
@@ -59,6 +71,9 @@ func isTool(s string) bool {
 func run(args []string) int {
 	if isAskpassCall(args) {
 		return askpassMain(args[0])
+	}
+	if os.Getenv(envState) != "" {
+		debugf("started inside an sshc session, but not as an askpass call: %d args %q", len(args), args)
 	}
 	if len(args) == 0 {
 		fmt.Print(usageText)

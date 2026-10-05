@@ -1,9 +1,10 @@
 # sshc
 
-`ssh`, `scp`, `sftp`, `rsync` and `ssh-copy-id` that type your stored password for you.
+`ssh`, `scp`, `sftp`, `rsync` and `ssh-copy-id` that type your stored password
+- or the passphrase of your SSH key - for you.
 
 ```console
-$ export SSHC_PASSWORD        # set once per shell, see below
+$ sshc set                    # save it once, typed hidden
 $ sshc w.go-2                 # no prompt
 $ sshc scp -r ./site w.go-2:/var/www
 ```
@@ -12,37 +13,60 @@ sshc is a thin wrapper around the OpenSSH client you already have. It is a
 single executable with no runtime dependencies - no `sshpass`, no `expect` -
 and runs on Linux, macOS and Windows.
 
-> SSH keys are still the better answer wherever you are allowed to use them.
-> sshc is for the hosts where you are not.
+> sshc stores secrets in plain text for convenience. Where you can, prefer an
+> SSH key with [`ssh-agent`](#a-safer-alternative-ssh-agent), which gives you
+> the same no-prompt logins without a readable secret on disk.
 
 ## Contents
 
+- [Password or passphrase?](#password-or-passphrase)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Getting started](#getting-started)
   - [1. Check your OpenSSH](#1-check-your-openssh)
   - [2. Install sshc](#2-install-sshc)
   - [3. Give your host a short name (optional)](#3-give-your-host-a-short-name-optional)
-  - [4. Store the password](#4-store-the-password)
+  - [4. Store the password or passphrase](#4-store-the-password-or-passphrase)
   - [5. Check, then connect](#5-check-then-connect)
 - [Usage](#usage)
   - [Moving a host to a key](#moving-a-host-to-a-key)
-- [Storing passwords](#storing-passwords)
+- [Storing passwords and passphrases](#storing-passwords-and-passphrases)
   - [Environment variables (preferred)](#environment-variables-preferred)
   - [Config file](#config-file)
-  - [Which password is used](#which-password-is-used)
+  - [Which one is used](#which-one-is-used)
   - [Jump hosts](#jump-hosts)
 - [Safety](#safety)
+  - [A safer alternative: ssh-agent](#a-safer-alternative-ssh-agent)
 - [Notes](#notes)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [License](#license)
 
+## Password or passphrase?
+
+ssh can ask you for two different secrets, and they are easy to mix up because
+you type both at a prompt when you connect. sshc can answer either, but you
+have to store the right kind. **The wording of the prompt tells you which one
+you have:**
+
+| ssh asks | What it is | Store it as | Save it with |
+| -------- | ---------- | ----------- | ------------ |
+| `luke@203.0.113.7's password:` | a **login password**: your account's password on the server | `SSHC_PASSWORD` | `sshc set` |
+| `Enter passphrase for key '/home/luke/.ssh/id_ed25519':` | a **key passphrase**: it unlocks a private key file on *your* machine, and never leaves it | `SSHC_PASSPHRASE` | `sshc set --passphrase` |
+
+Not sure? Run plain `ssh yourhost` once and read the prompt.
+
+The two are kept apart on purpose. A value stored as a password is never tried
+as a passphrase, or the other way round, so if sshc "still asks", the first
+thing to check is that you stored the kind of secret the prompt is asking for.
+You can store both - for example a key passphrase for one host and a login
+password for another.
+
 ## How it works
 
 OpenSSH has a hook, `SSH_ASKPASS`, for a program that answers its prompts.
 sshc starts the real `ssh` with itself registered as that program, and answers
-the password prompt when ssh calls back. Because ssh does the asking:
+the password or passphrase prompt when ssh calls back. Because ssh does the asking:
 
 - every option of the wrapped tool works, because sshc never rewrites your arguments;
 - `~/.ssh/config` aliases, `ProxyJump`, port forwards, etc. behave as usual;
@@ -133,9 +157,24 @@ Host w.go-2
     Port 22
 ```
 
-### 4. Store the password
+### 4. Store the password or passphrase
 
-For the current terminal only - nothing is written to disk:
+First work out [which of the two](#password-or-passphrase) your host asks for.
+
+**To keep it in every terminal**, save it in the [config file](#config-file).
+You type it hidden, twice:
+
+```console
+$ sshc set                    # a login password
+$ sshc set --passphrase       # or: the passphrase of your SSH key
+New passphrase:
+Again:
+Updated!
+```
+
+**To keep it in the current terminal only**, with nothing written to disk, set
+an environment variable instead - `SSHC_PASSWORD` for a login password,
+`SSHC_PASSPHRASE` for a key passphrase:
 
 ```bash
 # bash / zsh
@@ -147,29 +186,22 @@ read -rs SSHC_PASSWORD && export SSHC_PASSWORD
 $env:SSHC_PASSWORD = Read-Host -MaskInput 'Password'
 ```
 
-Type the password and press Enter; nothing is shown.
-
-To have it available in every terminal instead, save it in the
-[config file](#config-file):
-
-```console
-$ sshc set
-New password:
-Again:
-Updated!
-```
+Type it and press Enter; nothing is shown.
 
 ### 5. Check, then connect
 
 ```console
 $ sshc --check w.go-2
-config file: none
+config file: /home/luke/.local/bin/sshc.conf
 w.go-2 -> 203.0.113.7 (user luke)
-  password from environment variable SSHC_PASSWORD
+  no stored password; you would be prompted
+  key ~/.ssh/id_ed25519: passphrase from [profile default] in /home/luke/.local/bin/sshc.conf
 $ sshc w.go-2
 ```
 
-`--check` does not connect and never prints the password. The first time you
+`--check` does not connect and never prints a secret. It lists the login
+password and each key file ssh would try for that host, so a line saying "no
+stored password" is fine when you log in with a key, as above. The first time you
 reach a new host, ssh still asks you to confirm its host key, as always.
 
 ## Usage
@@ -212,15 +244,16 @@ $ sshc ssh-copy-id w.go-2
 $ ssh w.go-2                  # logs in with the key
 ```
 
-If no password is stored anywhere, sshc simply runs the tool.
+If nothing is stored anywhere, sshc simply runs the tool.
 
-## Storing passwords
+## Storing passwords and passphrases
 
 ### Environment variables (preferred)
 
-`SSHC_PASSWORD` is the active password. It lives in the shell that set it and
-the programs that shell starts, so different terminals can hold different
-passwords at the same time.
+`SSHC_PASSWORD` is the active login password and `SSHC_PASSPHRASE` the active
+key passphrase. They live in the shell that set them and the programs that
+shell starts, so different terminals can hold different values at the same
+time.
 
 Set it without it landing in your shell history:
 
@@ -243,30 +276,37 @@ upper-cased, with everything that is not a letter or digit turned into `_`:
 | `203.0.113.7`    | `SSHC_PASSWORD_203_0_113_7` |
 | `root@w.go-2`    | `SSHC_PASSWORD_ROOT_W_GO_2` |
 
+A passphrase that belongs to one key works the same way, with the key's file
+name: `SSHC_PASSPHRASE_ID_ED25519` for `~/.ssh/id_ed25519`.
+
 ### Config file
 
-`sshc set` saves a password in the config file, creating the file if needed:
+`sshc set` saves a secret in the config file, creating the file if needed.
+Which option you give decides what is saved:
 
-```console
-$ sshc set                        # asks for it, hidden - the safest form
-$ sshc set 'correct horse'        # or give it directly
-$ sshc set --profile home         # a named profile
-$ sshc set --host w.go-2          # one host only
-```
+| Command | Saves |
+| ------- | ----- |
+| `sshc set` | the login password of the active profile |
+| `sshc set --passphrase` | the key passphrase of the active profile, tried for any key |
+| `sshc set --host w.go-2` | the login password for that one host |
+| `sshc set --key id_ed25519` | the passphrase for that one key (file name or full path) |
+
+Add `--profile NAME` to the first two to save into a profile other than the
+active one. Each command asks for the value hidden; you can also put it at the
+end of the command (`sshc set 'correct horse'`), with the caveats below.
 
 A program cannot change the environment of the shell that started it, so
 `sshc set` always writes to the file; it is the persistent counterpart of
 `SSHC_PASSWORD`, which still wins in a shell where it is set.
 
-When the password is given on the command line, sshc clears the screen and
+When the value is given on the command line, sshc clears the screen and
 scrollback afterwards so it is not left on display. `--no-clear`, or
 `clear_on_set = no` in the config file, turns that off. Clearing the screen
 does not remove the command from your **shell history**, and the argument is
 briefly visible to other users in the process list - use plain `sshc set` to
 avoid both.
 
-You can also edit the file by hand.
-`sshc --init` creates `sshc.conf` next to the sshc executable (or in your user
+You can also edit the file by hand. `sshc --init` creates `sshc.conf` next to the sshc executable (or in your user
 config directory if that location is not writable). `$SSHC_CONFIG` points
 somewhere else.
 
@@ -274,15 +314,21 @@ somewhere else.
 # The active profile. $SSHC_PROFILE overrides this per shell.
 profile = work
 
+# A profile holds a login password, a key passphrase, or both.
 [profile work]
 password = correct horse battery staple
+passphrase = unlocks my ssh key
 
 [profile home]
 password = hunter2
 
-# One host. Always wins over the active profile.
+# One host's login password. Always wins over the active profile.
 [host w.go-2]
 password = something else
+
+# One key's passphrase. Always wins over the active profile.
+[key id_ed25519]
+passphrase = something else again
 ```
 
 Switch profile for one shell with `export SSHC_PROFILE=home`, or for one
@@ -291,32 +337,36 @@ command with `SSHC_PROFILE=home sshc w.go-2`.
 Values run to the end of the line and are taken literally. The file is parsed
 as data and nothing in it is ever executed.
 
-### Which password is used
+### Which one is used
 
-First match wins:
+First match wins. The two columns never cross over:
 
-1. `SSHC_PASSWORD_<HOST>`
-2. `[host <name>]` in the config file
-3. `SSHC_PASSWORD`
-4. the active `[profile]` in the config file
+|   | For a login password prompt | For a key passphrase prompt |
+| - | --------------------------- | --------------------------- |
+| 1 | `SSHC_PASSWORD_<HOST>` | `SSHC_PASSPHRASE_<KEYFILE>` |
+| 2 | `[host <name>]` in the config file | `[key <name>]` in the config file |
+| 3 | `SSHC_PASSWORD` | `SSHC_PASSPHRASE` |
+| 4 | `password =` in the active profile | `passphrase =` in the active profile |
 
 A host entry can be written with the alias you type or with the real host
-name, with or without `user@`.
+name, with or without `user@`. A key entry can be the key's file name or its
+full path.
 
-`sshc --check <destination>` shows which source would be used, without
-connecting and without printing the password:
+`sshc --check <destination>` shows which sources would be used, without
+connecting and without printing any secret:
 
 ```console
 $ sshc --check w.go-2
 config file: none
 w.go-2 -> 203.0.113.7 (user luke)
   password from environment variable SSHC_PASSWORD
+  key ~/.ssh/id_ed25519: no stored passphrase; you would be prompted if it has one
 ```
 
 ### Jump hosts
 
-The active password (3 and 4 above) is only ever offered to the destination
-you named. A jump host gets a password only if it has its own host entry, so
+The active login password (rows 3 and 4 above) is only ever offered to the
+destination you named. A jump host gets a password only if it has its own host entry, so
 your password for one machine is never handed to another one on the way:
 
 ```console
@@ -327,14 +377,19 @@ $ sshc -J bastion.example.com w.go-2
 Use the jump host's real host name here; only command-line destinations are
 matched by alias.
 
+Key passphrases have no such restriction: a passphrase only unlocks a file on
+your own machine and is never sent to any host, so the active passphrase is
+tried for whichever key ssh asks about.
+
 ## Safety
 
 What sshc does:
 
-- **Answers only login password prompts**, and only for the host that the
-  local ssh client says is asking. Host key confirmations, key passphrases,
-  one-time codes and password-change prompts go to your terminal as usual.
-  A server cannot word a prompt to obtain a different host's password.
+- **Answers only two kinds of prompt**: a login password, and only for the
+  host that the local ssh client says is asking; and the passphrase of a local
+  key file. Host key confirmations, one-time codes, security-key PINs and
+  password-change prompts go to your terminal as usual. A server cannot word a
+  prompt to obtain a different host's password, or a key passphrase.
 - **Offers a stored password once.** If the server rejects it, sshc says so and
   lets you type instead of repeating it and locking the account.
 - **Never accepts a host key for you.** Your `StrictHostKeyChecking` setting is
@@ -349,14 +404,42 @@ What it cannot do:
   as you (and by root), like any environment variable. Do not add `SSHC_*` to
   `SendEnv` in your ssh config.
 - A password in `sshc.conf` is plain text on disk. Never commit that file.
+- A stored **key passphrase** deserves extra thought. The passphrase exists so
+  that someone who copies your private key file still cannot use it. Stored in
+  plain text on the same machine, it no longer protects against anyone who can
+  read your files - it is then roughly as safe as a key with no passphrase.
 - On Windows the config file is protected by the folder's ACL rather than a
   mode check, so keep it somewhere under your user profile.
 
+### A safer alternative: ssh-agent
+
+If the prompt you want rid of is a key passphrase, OpenSSH has a built-in
+answer that needs no stored secret: `ssh-agent` holds the unlocked key in
+memory, and `ssh`, `scp`, `git` and the rest use it without asking.
+
+```console
+$ eval "$(ssh-agent)"         # Linux / macOS, once per login session
+$ ssh-add ~/.ssh/id_ed25519   # type the passphrase one last time
+```
+
+On Windows the agent is a service, and it remembers keys across reboots. In an
+administrator PowerShell, once:
+
+```powershell
+Get-Service ssh-agent | Set-Service -StartupType Automatic
+Start-Service ssh-agent
+```
+
+then, in a normal one: `ssh-add $HOME\.ssh\id_ed25519`.
+
+Use sshc's passphrase support where an agent is not practical - in scripts and
+scheduled jobs, or on machines where you cannot run one.
+
 ## Notes
 
-- `sftp -b batchfile` turns on ssh's batch mode, which disables password
-  authentication altogether. Add `-o BatchMode=no` before `-b` to use a stored
-  password in a batch.
+- `sftp -b batchfile` turns on ssh's batch mode, which disables password and
+  passphrase prompts altogether. Add `-o BatchMode=no` before `-b` to use a
+  stored secret in a batch.
 - sshc adds one `ssh -V` and one `ssh -G` call before connecting (about 10 ms)
   to check the client version and resolve the destination.
 
@@ -366,13 +449,21 @@ What it cannot do:
 the same arguments. If it says "no stored password", the variable is not set
 in this terminal (it does not carry over to new ones) or the config file is
 not where sshc looks - the first line of the output shows which file is in
-use. If a source is listed but you are still prompted, the prompt is probably
-not for that host's login password: it may come from a
-[jump host](#jump-hosts), or be a key passphrase or a one-time code, which sshc
-leaves to you.
+use.
 
-**"the stored password for ... was not accepted".** The server rejected it, so
-sshc stopped offering it and let you type. Update the stored password.
+Then read the prompt itself. `Enter passphrase for key ...` needs a stored
+*passphrase* (`sshc set --passphrase`), and `...'s password:` needs a stored
+*password* (`sshc set`); having only the other kind is the most common reason
+for still being asked. See [Password or passphrase?](#password-or-passphrase).
+Otherwise the prompt may come from a [jump host](#jump-hosts), or be a
+one-time code, which sshc leaves to you.
+
+Setting `SSHC_DEBUG=1` makes sshc print what it decides at each step (never
+the secret itself).
+
+**"the stored password for ... was not accepted"** (or passphrase). It was
+rejected, so sshc stopped offering it and let you type. Update the stored
+value.
 
 **"OpenSSH 8.5 or newer is required".** Upgrade the OpenSSH client. On Windows
 a newer one is available from the

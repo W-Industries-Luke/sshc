@@ -18,7 +18,7 @@ const (
 	envConfig = "SSHC_ASKPASS_CONFIG" // config file in use, may be empty
 )
 
-// Only two prompt shapes are answered automatically, and in both the
+// Only two password prompt shapes are answered automatically, and in both the
 // user@host is written by the local ssh client, not by the server:
 //
 //	user@host's password:        password authentication
@@ -32,6 +32,13 @@ var (
 	rePassword = regexp.MustCompile(`(?i)^([^\s(]\S*)@([^@\s]+)'s password: ?$`)
 	reKbdInt   = regexp.MustCompile(`(?i)^\((\S+)@([^@)\s]+)\) password(?: for \S+)?: ?$`)
 )
+
+// The prompt for an encrypted private key. It is produced entirely by the
+// local client and names a local file; a server cannot send it, because
+// anything a server sends arrives behind the "(user@host) " prefix.
+var rePassphrase = regexp.MustCompile(`^Enter passphrase for key '(.+)': ?$`)
+
+var reUnsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
 func parsePrompt(prompt string) (user, host string, ok bool) {
 	for _, re := range []*regexp.Regexp{rePassword, reKbdInt} {
@@ -81,6 +88,7 @@ func askTTY(prompt string, echo bool) int {
 }
 
 func askpassMain(prompt string) int {
+	debugf("askpass called by pid %d with prompt %q", os.Getppid(), prompt)
 	// Host key confirmations and the like are never answered automatically.
 	hint := os.Getenv("SSH_ASKPASS_PROMPT")
 	if hint == "confirm" || strings.Contains(prompt, "(yes/no") {
@@ -90,20 +98,30 @@ func askpassMain(prompt string) int {
 		return 0
 	}
 
-	// Key passphrases, one-time codes, password changes: not ours to answer.
-	user, host, ok := parsePrompt(prompt)
-	if !ok {
+	// Work out what is being asked for. One-time codes, password changes and
+	// anything else unrecognised are not ours to answer.
+	var what, id string
+	var find func(*resolver) (secret, from, note string)
+	if m := rePassphrase.FindStringSubmatch(prompt); m != nil {
+		what, id = "passphrase for key "+m[1], "key."+m[1]
+		find = func(r *resolver) (string, string, string) { return r.lookupPassphrase(m[1]) }
+		debugf("prompt is for the passphrase of key %q", m[1])
+	} else if user, host, ok := parsePrompt(prompt); ok {
+		what, id = "password for "+user+"@"+host, "host."+host
+		find = func(r *resolver) (string, string, string) { return r.lookup(user, host) }
+		debugf("prompt is for user %q at host %q; destinations: %q", user, host, os.Getenv(envDests))
+	} else {
+		debugf("not a prompt sshc answers; asking on the terminal")
 		return askTTY(prompt, false)
 	}
 
-	// A stored password is offered once per connection. If ssh asks again it
+	// A stored secret is offered once per connection. If ssh asks again it
 	// was rejected, and repeating it would only burn login attempts.
-	safeHost := regexp.MustCompile(`[^A-Za-z0-9._-]`).ReplaceAllString(host, "_")
-	mark := filepath.Join(os.Getenv(envState), fmt.Sprintf("%d.%s", os.Getppid(), safeHost))
+	mark := filepath.Join(os.Getenv(envState), fmt.Sprintf("%d.%s", os.Getppid(), reUnsafeName.ReplaceAllString(id, "_")))
 	if prev, err := os.ReadFile(mark); err == nil {
 		// Say so once; later asks are retries of what the human typed.
 		if len(prev) > 0 {
-			warnf("the stored password for %s@%s (from %s) was not accepted", user, host, strings.TrimSpace(string(prev)))
+			warnf("the stored %s (from %s) was not accepted", what, strings.TrimSpace(string(prev)))
 			_ = os.WriteFile(mark, nil, 0o600)
 		}
 		return askTTY(prompt, false)
@@ -113,18 +131,20 @@ func askpassMain(prompt string) int {
 	if err != nil {
 		warnf("%v", err)
 	}
-	password, from, note := newResolver(cfg, decodeDests(os.Getenv(envDests))).lookup(user, host)
+	secret, from, note := find(newResolver(cfg, decodeDests(os.Getenv(envDests))))
 	if note != "" {
 		warnf("%s", note)
 	}
-	if password == "" {
+	if secret == "" {
+		debugf("nothing stored matches; asking on the terminal")
 		return askTTY(prompt, false)
 	}
+	debugf("answering from %s", from)
 	if err := os.WriteFile(mark, []byte(from+"\n"), 0o600); err != nil {
 		// Without the marker we could not tell a retry from a first ask.
 		warnf("%v", err)
 		return askTTY(prompt, false)
 	}
-	fmt.Println(password)
+	fmt.Println(secret)
 	return 0
 }

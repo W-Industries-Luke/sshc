@@ -104,6 +104,23 @@ else
 	echo "skip ssh-copy-id (not installed)"
 fi
 
+# A passphrase-protected key, installed for luke over the password login.
+ssh-keygen -q -t ed25519 -N 'key phrase#2' -f enckey
+sshc -F cfg w.go-2 'mkdir -p -m 700 .ssh && cat >>.ssh/authorized_keys && chmod 600 .ssh/authorized_keys' <enckey.pub
+keyssh() { sshc -F cfg -i enckey -o PubkeyAuthentication=yes -o PasswordAuthentication=no "$@"; }
+check "key passphrase from SSHC_PASSPHRASE" 0 "hi" \
+	env -u SSHC_PASSWORD 'SSHC_PASSPHRASE=key phrase#2' bash -c "$(declare -f keyssh); keyssh w.go-2 echo hi"
+check "key passphrase by key file name" 0 "hi" \
+	env -u SSHC_PASSWORD SSHC_PASSPHRASE=wrong 'SSHC_PASSPHRASE_ENCKEY=key phrase#2' bash -c "$(declare -f keyssh); keyssh w.go-2 echo hi"
+check "scp with a key passphrase"    0 ""   \
+	env -u SSHC_PASSWORD 'SSHC_PASSPHRASE=key phrase#2' sshc scp -F cfg -i enckey -o PubkeyAuthentication=yes -o PasswordAuthentication=no ./up/d/f w.go-2:via-key
+check "rejected passphrase is not resent" 255 "passphrase for key enckey (from environment variable SSHC_PASSPHRASE) was not accepted" \
+	env -u SSHC_PASSWORD SSHC_PASSPHRASE=wrong bash -c "$(declare -f keyssh); keyssh w.go-2 true"
+check "the login password is not used as a passphrase" 255 "Permission denied" \
+	bash -c "$(declare -f keyssh); keyssh w.go-2 true"
+check "--check reports the key"      0 "enckey: passphrase from environment variable SSHC_PASSPHRASE" \
+	env SSHC_PASSPHRASE=x sshc --check -F cfg -i enckey w.go-2
+
 check "active password is not offered to a jump host" 255 "jump@127.0.0.1: Permission denied" \
 	sshc -F cfg inner echo hi
 check "jump host with its own variable" 0 "hi" \
@@ -133,6 +150,12 @@ check "set replaced the password"    0 "[profile work] in" sshc set -- "$PW"
 check "set from a pipe"              0 "Updated!" sh -c "printf '%s\\n' '$PW' | sshc set --profile piped"
 check "the piped profile logs in"    0 "hi"       env SSHC_PROFILE=piped sshc -F cfg w.go-2 echo hi
 check "set --host"                   0 "[host kbd] in" sshc set --host kbd "$PW"
+check "set --passphrase"              0 "passphrase of [profile work] in" sshc set --passphrase 'key phrase#2'
+check "set kept the profile password" 0 "hi"      sshc -F cfg w.go-2 echo hi
+check "passphrase from the profile"  0 "hi"       bash -c "$(declare -f keyssh); keyssh w.go-2 echo hi"
+check "set --key"                    0 "passphrase of [key enckey] in" sshc set --key enckey 'key phrase#2'
+check "key section beats the profile" 0 "hi"      sh -c "sshc set --passphrase wrong >/dev/null && $(declare -f keyssh); keyssh w.go-2 echo hi"
+check "set refuses mixed targets"    1 "use one"  sshc set --host kbd --key enckey x
 check "set rejects stray options"    1 "Usage: sshc set" sshc set --bogus x
 chmod 644 bin/sshc.conf
 check "world-readable config is refused" 1 "chmod 600" sshc -F cfg w.go-2 true

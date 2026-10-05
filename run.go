@@ -94,8 +94,10 @@ func runTool(tool string, args []string) int {
 	}
 	// Nothing stored anywhere: behave exactly like the plain tool.
 	if cfgPath == "" && !newResolver(nil, nil).hasEnvPasswords() {
+		debugf("no config file and no SSHC_PASSWORD*/SSHC_PASSPHRASE* variables; running plain %s", tool)
 		return passthrough(tool, args)
 	}
+	debugf("config file: %q", cfgPath)
 	if cfgPath != "" {
 		if err := checkConfigSecure(cfgPath); err != nil {
 			warnf("%v", err)
@@ -108,8 +110,10 @@ func runTool(tool string, args []string) int {
 	}
 	dests := findDests(tool, args)
 	if len(dests) == 0 {
+		debugf("no destination found in the arguments; running plain %s", tool)
 		return passthrough(tool, args)
 	}
+	debugf("destinations: %q", encodeDests(dests))
 
 	self, err := os.Executable()
 	if err != nil {
@@ -126,6 +130,7 @@ func runTool(tool string, args []string) int {
 		return 1
 	}
 	defer os.RemoveAll(state)
+	debugf("askpass program: %q, state: %q", self, state)
 
 	return spawn(tool, args, childEnv(self, state, cfgPath, dests))
 }
@@ -178,6 +183,22 @@ func cmdCheck(args []string) int {
 			fmt.Printf("  no stored password (%s); you would be prompted\n", note)
 		default:
 			fmt.Println("  no stored password; you would be prompted")
+		}
+		for _, key := range d.keys {
+			file := key
+			if file == "~" || strings.HasPrefix(file, "~/") || strings.HasPrefix(file, "~\\") {
+				if home, err := os.UserHomeDir(); err == nil {
+					file = home + file[1:]
+				}
+			}
+			if !exists(file) {
+				continue
+			}
+			if passphrase, from, _ := r.lookupPassphrase(key); passphrase != "" {
+				fmt.Printf("  key %s: passphrase from %s\n", key, from)
+			} else {
+				fmt.Printf("  key %s: no stored passphrase; you would be prompted if it has one\n", key)
+			}
 		}
 	}
 	return 0

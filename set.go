@@ -11,17 +11,26 @@ import (
 	"golang.org/x/term"
 )
 
-const setUsage = `Usage: sshc set [--profile NAME | --host NAME] [--no-clear] [--] [password]
+const setUsage = `Usage: sshc set [options] [--] [value]
 
-Saves a password in the config file. Without a password argument you are asked
-to type it, hidden - which also keeps it out of your shell history.
+Saves a login password, or the passphrase of an SSH key, in the config file.
+Without a value you are asked to type it, hidden - which also keeps it out of
+your shell history.
 
-  (no option)       the active profile (created as "default" if there is none)
-  --profile NAME    that profile
-  --host NAME       that host only; NAME as you type it for ssh, optionally
-                    with "user@"
-  --no-clear        do not clear the screen after a password given as argument
+What to save:
+  (no option)       the login password of the active profile
+  --passphrase      the key passphrase of the active profile, tried for any key
+  --host NAME       the login password of one host; NAME as you type it for
+                    ssh, optionally with "user@"
+  --key NAME        the passphrase of one key; NAME is the key's file name
+                    (id_ed25519) or its full path
+
+Other options:
+  --profile NAME    use that profile instead of the active one
+  --no-clear        do not clear the screen after a value given as argument
                     (or put "clear_on_set = no" in the config file)
+
+The active profile is created as "default" if there is none yet.
 `
 
 // quoteValue writes a value so that parseConfig reads back exactly v.
@@ -100,7 +109,7 @@ func writeConfig(path string, lines []string) error {
 
 // readNewPassword gets the password without it being shown: typed twice on
 // the terminal, or as one line on stdin when that is a pipe.
-func readNewPassword() (string, error) {
+func readNewPassword(what string) (string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		if err != nil && line == "" {
@@ -120,7 +129,7 @@ func readNewPassword() (string, error) {
 		fmt.Fprintln(out)
 		return string(b), err
 	}
-	first, err := ask("New password: ")
+	first, err := ask("New " + what + ": ")
 	if err != nil {
 		return "", err
 	}
@@ -153,8 +162,8 @@ func clearScreen() {
 }
 
 func cmdSet(args []string) int {
-	var profile, host, password string
-	havePassword, clear := false, true
+	var profile, host, key, password string
+	havePassword, clear, passphrase := false, true, false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		name, val, attached := strings.Cut(arg, "=")
@@ -164,7 +173,9 @@ func cmdSet(args []string) int {
 			return 0
 		case arg == "--no-clear":
 			clear = false
-		case name == "--profile" || name == "--host":
+		case arg == "--passphrase":
+			passphrase = true
+		case name == "--profile" || name == "--host" || name == "--key":
 			if !attached {
 				i++
 				if i >= len(args) {
@@ -177,10 +188,13 @@ func cmdSet(args []string) int {
 				warnf("%q is not a usable name", val)
 				return 1
 			}
-			if name == "--profile" {
+			switch name {
+			case "--profile":
 				profile = val
-			} else {
+			case "--host":
 				host = val
+			default:
+				key = val
 			}
 		case arg == "--" && i+2 == len(args):
 			password, havePassword = args[i+1], true
@@ -192,9 +206,19 @@ func cmdSet(args []string) int {
 			password, havePassword = arg, true
 		}
 	}
-	if profile != "" && host != "" {
-		warnf("use either --profile or --host, not both")
+	chosen := 0
+	for _, on := range []bool{host != "", key != "", profile != "" || passphrase} {
+		if on {
+			chosen++
+		}
+	}
+	if chosen > 1 {
+		warnf("--host, --key and --profile/--passphrase save to different places; use one")
 		return 1
+	}
+	what := "password"
+	if key != "" || passphrase {
+		what = "passphrase"
 	}
 	fromArg := havePassword
 
@@ -215,13 +239,13 @@ func cmdSet(args []string) int {
 	}
 
 	if !havePassword {
-		if password, err = readNewPassword(); err != nil {
+		if password, err = readNewPassword(what); err != nil {
 			warnf("%v", err)
 			return 1
 		}
 	}
 	if password == "" || strings.ContainsAny(password, "\r\n") {
-		warnf("the password cannot be empty or contain a line break")
+		warnf("the %s cannot be empty or contain a line break", what)
 		return 1
 	}
 
@@ -233,7 +257,9 @@ func cmdSet(args []string) int {
 	lines := strings.Split(strings.TrimRight(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n"), "\n")
 
 	section := "host " + host
-	if host == "" {
+	if key != "" {
+		section = "key " + key
+	} else if host == "" {
 		active, _ := cfg.get("", "profile")
 		if profile == "" {
 			profile = os.Getenv("SSHC_PROFILE")
@@ -250,7 +276,7 @@ func cmdSet(args []string) int {
 		}
 		section = "profile " + profile
 	}
-	lines = setConfigValue(lines, section, "password", password)
+	lines = setConfigValue(lines, section, what, password)
 	if err := writeConfig(path, lines); err != nil {
 		warnf("%v", err)
 		return 1
@@ -260,13 +286,13 @@ func cmdSet(args []string) int {
 		clearScreen()
 	}
 	fmt.Println("Updated!")
-	fmt.Printf("  [%s] in %s\n", section, path)
+	fmt.Printf("  %s of [%s] in %s\n", what, section, path)
 	if fromArg {
-		fmt.Println("  Note: a password typed as an argument stays in your shell history.")
-		fmt.Println("  Run \"sshc set\" with no password to type it hidden instead.")
+		fmt.Printf("  Note: a %s typed as an argument stays in your shell history.\n", what)
+		fmt.Println("  Leave the value off to type it hidden instead.")
 	}
-	if host == "" && os.Getenv("SSHC_PASSWORD") != "" {
-		fmt.Println("  Note: SSHC_PASSWORD is set in this shell and takes precedence here.")
+	if envName := "SSHC_" + strings.ToUpper(what); host == "" && key == "" && os.Getenv(envName) != "" {
+		fmt.Printf("  Note: %s is set in this shell and takes precedence here.\n", envName)
 	}
 	return 0
 }

@@ -226,6 +226,8 @@ func queryDest(args []string) (d dest, ok bool) {
 			d.hostname = v
 		case "user":
 			d.user = v
+		case "identityfile":
+			d.keys = append(d.keys, v)
 		}
 	}
 	return d, d.hostname != ""

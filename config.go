@@ -29,8 +29,10 @@ const configTemplate = `# sshc configuration.
 # The active profile. $SSHC_PROFILE overrides this per shell.
 #profile = work
 
+# A profile can hold a login password, the passphrase of your SSH key, or both.
 #[profile work]
 #password = change-me
+#passphrase = change-me
 
 #[profile home]
 #password = change-me
@@ -40,6 +42,10 @@ const configTemplate = `# sshc configuration.
 # narrowed with "user@".
 #[host w.go-2]
 #password = change-me
+
+# A [key] section is the passphrase of one key, by file name or full path.
+#[key id_ed25519]
+#passphrase = change-me
 `
 
 // config is a parsed config file. A nil *config is valid and empty.

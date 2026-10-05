@@ -24,6 +24,9 @@ func TestParsePrompt(t *testing.T) {
 		{"(luke@evil) (admin@bank) Password: ", "", "", false},
 		{"Banner\nadmin@bank's password: ", "", "", false},
 
+		// A key passphrase is a different kind of prompt.
+		{"Enter passphrase for key '/home/luke/.ssh/id_ed25519': ", "", "", false},
+
 		// Not a login password: left for the human.
 		{"Password: ", "", "", false},
 		{"(luke@box) Verification code: ", "", "", false},
@@ -195,6 +198,73 @@ func TestLookup(t *testing.T) {
 	}
 }
 
+func TestPassphrasePrompt(t *testing.T) {
+	tests := []struct{ prompt, key string }{
+		{"Enter passphrase for key '/home/luke/.ssh/id_ed25519': ", "/home/luke/.ssh/id_ed25519"},
+		{`Enter passphrase for key 'C:\Users\Luke.Weaver/.ssh/id_ed25519': `, `C:\Users\Luke.Weaver/.ssh/id_ed25519`},
+		{"Enter passphrase for key '/home/o'brien/.ssh/id': ", "/home/o'brien/.ssh/id"},
+
+		// A server can only speak behind the "(user@host) " prefix.
+		{"(luke@evil) Enter passphrase for key '/home/luke/.ssh/id_ed25519': ", ""},
+		{"Banner\nEnter passphrase for key '/home/luke/.ssh/id_ed25519': ", ""},
+		{"Enter PIN for ED25519-SK key /home/luke/.ssh/id_sk: ", ""},
+		{"Bad passphrase, try again for /home/luke/.ssh/id: ", ""},
+	}
+	for _, tt := range tests {
+		got := ""
+		if m := rePassphrase.FindStringSubmatch(tt.prompt); m != nil {
+			got = m[1]
+		}
+		if got != tt.key {
+			t.Errorf("passphrase prompt %q: key %q; want %q", tt.prompt, got, tt.key)
+		}
+	}
+}
+
+func TestLookupPassphrase(t *testing.T) {
+	cfg := &config{path: "sshc.conf", entries: map[string]string{
+		configKey("", "profile"):                                 "work",
+		configKey("profile work", "passphrase"):                  "work-pp",
+		configKey("profile home", "passphrase"):                  "home-pp",
+		configKey("key id_special", "passphrase"):                "special-pp",
+		configKey("key /srv/keys/id_special", "passphrase"):      "srv-pp",
+		configKey(`key C:\Users\Luke\.ssh\id_win`, "passphrase"): "win-pp",
+	}}
+	long := "/" + strings.Repeat("d", 120) + "/id_long"
+	cfgLong := &config{path: "sshc.conf", entries: map[string]string{configKey("key "+long, "passphrase"): "long-pp"}}
+	tests := []struct {
+		name       string
+		env        []string
+		cfg        *config
+		key        string
+		want, from string
+	}{
+		{"profile", nil, cfg, "/home/luke/.ssh/id_ed25519", "work-pp", "[profile work]"},
+		{"SSHC_PROFILE", []string{"SSHC_PROFILE=home"}, cfg, "/home/luke/.ssh/id_ed25519", "home-pp", "[profile home]"},
+		{"SSHC_PASSPHRASE beats profile", []string{"SSHC_PASSPHRASE=env-pp"}, cfg, "/home/luke/.ssh/id_ed25519", "env-pp", "SSHC_PASSPHRASE"},
+		{"env only", []string{"SSHC_PASSPHRASE=env-pp"}, nil, `C:\Users\Luke/.ssh/id_ed25519`, "env-pp", "SSHC_PASSPHRASE"},
+		{"key section by file name", []string{"SSHC_PASSPHRASE=env-pp"}, cfg, "/home/luke/.ssh/id_special", "special-pp", "[key id_special]"},
+		{"key section by full path wins", nil, cfg, "/srv/keys/id_special", "srv-pp", "[key /srv/keys/id_special]"},
+		{"windows path, mixed slashes and case", nil, cfg, `c:\users\luke/.ssh/ID_WIN`, "win-pp", "id_win]"},
+		{"key env by file name", []string{"SSHC_PASSPHRASE_ID_SPECIAL=e"}, cfg, "/home/luke/.ssh/id_special", "e", "SSHC_PASSPHRASE_ID_SPECIAL"},
+		{"path cut off by ssh at 100 chars", nil, cfgLong, long[:100], "long-pp", "[key /ddd"},
+		{"password variables are not passphrases", []string{"SSHC_PASSWORD=pw"}, nil, "/home/luke/.ssh/id", "", ""},
+	}
+	for _, tt := range tests {
+		r := &resolver{cfg: tt.cfg, environ: tt.env}
+		got, from, _ := r.lookupPassphrase(tt.key)
+		if got != tt.want || !strings.Contains(from, tt.from) {
+			t.Errorf("%s: lookupPassphrase = %q from %q; want %q from %q", tt.name, got, from, tt.want, tt.from)
+		}
+	}
+
+	// A profile holding only a passphrase must not draw a "no password" note.
+	r := &resolver{cfg: cfg, dests: []dest{{alias: "box", hostname: "10.0.0.5"}}}
+	if pw, _, note := r.lookup("luke", "10.0.0.5"); pw != "" || note != "" {
+		t.Errorf("passphrase-only profile: password %q, note %q; want neither", pw, note)
+	}
+}
+
 func TestHasEnvPasswords(t *testing.T) {
 	tests := []struct {
 		env  []string
@@ -204,6 +274,8 @@ func TestHasEnvPasswords(t *testing.T) {
 		{[]string{"SSHC_PROFILE=work", "SSHC_PASSWORD="}, false},
 		{[]string{"SSHC_PASSWORD=x"}, true},
 		{[]string{"SSHC_PASSWORD_BOX=x"}, true},
+		{[]string{"SSHC_PASSPHRASE=x"}, true},
+		{[]string{"SSHC_PASSPHRASE_ID_ED25519=x"}, true},
 	}
 	for _, tt := range tests {
 		if got := (&resolver{environ: tt.env}).hasEnvPasswords(); got != tt.want {
@@ -213,7 +285,7 @@ func TestHasEnvPasswords(t *testing.T) {
 }
 
 func TestDestsRoundTrip(t *testing.T) {
-	in := []dest{{"box", "10.0.0.5", "luke"}, {"::1", "::1", ""}}
+	in := []dest{{alias: "box", hostname: "10.0.0.5", user: "luke"}, {alias: "::1", hostname: "::1"}}
 	if got := decodeDests(encodeDests(in)); !reflect.DeepEqual(got, in) {
 		t.Errorf("round trip = %v; want %v", got, in)
 	}
