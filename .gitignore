@@ -10,3 +10,6 @@ sshc.conf
 
 # local tooling
 /.claude/
+
+# local working notes for the next session; not part of the project
+/HANDOFF.md

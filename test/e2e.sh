@@ -96,6 +96,18 @@ else
 	echo "skip interactive login tests (no python3)"
 fi
 check "a command of your own is left alone" 0 "/home/luke" sshc -F cfg w.go-2 pwd
+# The same two things given for one connection, before the host.
+if command -v python3 >/dev/null; then
+	check "--dir and --entry inline"     0 "at=/home ran=inline" login sshc --dir /home --entry 'export ENTRY_RAN=inline' -F cfg w.go-2
+	check "inline --dir keeps the stored entry command" 0 "at=/home ran=yes" login sshc --dir=/home -F cfg w.go-2
+fi
+check "--dir with a command runs it there" 0 "/tmp" sshc --dir /tmp -F cfg w.go-2 pwd
+check "--entry with a command runs first" 0 "got-7" sshc --entry 'export X=7' -F cfg w.go-2 'echo got-$X'
+check "--dir and --entry with a command" 0 "/var:9" sshc -F cfg --dir=/var --entry='export X=9' w.go-2 'echo $PWD:$X'
+check "--no-entry wins"              0 "/home/luke" sshc --no-entry --dir /tmp -F cfg w.go-2 pwd
+check "a missing directory stops the command" 2 "can't cd" sshc --dir /no/such/dir -F cfg w.go-2 'echo still-ran'
+check "--dir needs a shell or a command" 1 "need a login shell or a command" sshc --dir /tmp -N -F cfg w.go-2
+check "--dir needs a value"          1 "needs a value" sshc --dir
 check "check shows what a login runs" 0 "an interactive login runs: cd '/tmp' && export ENTRY_RAN=yes" sshc check -F cfg w.go-2
 check "list shows the login settings" 0 "On login:" sshc list
 check "unset the start directory"    0 "directory of [host w.go-2]" sshc unset -H w.go-2 -d

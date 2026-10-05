@@ -79,6 +79,9 @@ func completions(words []string, cword int) []string {
 	switch {
 	case cword <= 1:
 		candidates = append([]string{}, hosts...)
+		if strings.HasPrefix(cur, "--") {
+			candidates = append(candidates, "--dir", "--entry", "--no-entry")
+		}
 		// "user@..." can only be a host.
 		if !strings.Contains(cur, "@") {
 			candidates = append(candidates, ownCommands...)
@@ -123,6 +126,8 @@ func completions(words []string, cword int) []string {
 		// ssh, sftp, ssh-copy-id, check, each, or a host given directly.
 		if !strings.HasPrefix(cur, "-") {
 			candidates = hosts
+		} else if strings.HasPrefix(cur, "--") && (command == "ssh" || !isTool(command) && command != "check" && command != "each") {
+			candidates = []string{"--dir", "--entry", "--no-entry"}
 		}
 	}
 

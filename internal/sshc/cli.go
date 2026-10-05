@@ -26,7 +26,7 @@ import (
 const prog = "sshc"
 
 // version is a variable so that a test build can pretend to be an old one.
-var version = "0.7.0"
+var version = "0.7.1"
 
 const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
        sshc scp  [scp options] source ... target
@@ -57,6 +57,9 @@ More ways to connect:
   sshc set -H HOST -d DIR       start interactive logins to HOST in DIR, and
   sshc set -H HOST -e COMMAND   run COMMAND there first; "sshc --no-entry HOST"
                                 skips both once
+  sshc --dir DIR --entry COMMAND HOST [COMMAND]
+                                the same for this connection only; with a
+                                command, it is run there after the entry
   sshc                          on its own: pick a host from your ssh config
   sshc pick                     the same, explicitly
   sshc hosts                    list the hosts in your ssh config
@@ -181,15 +184,6 @@ func Main(args []string) int {
 			args = []string{"--version"}
 		case "-h":
 			args = []string{"--help"}
-		}
-	}
-	// "sshc --no-entry host" logs in without the host's start directory and
-	// entry command, this once.
-	if args[0] == "--no-entry" {
-		os.Setenv(envNoEntry, "1")
-		if args = args[1:]; len(args) == 0 {
-			fmt.Print(usageText)
-			return 1
 		}
 	}
 	// Each action has a plain word as well as its "--" form. Single letters

@@ -1,4 +1,4 @@
-.TH SSHC 1 "2026-10-05" "sshc 0.7.0" "User Commands"
+.TH SSHC 1 "2026-10-05" "sshc 0.7.1" "User Commands"
 .SH NAME
 sshc \- ssh, scp, sftp and rsync that answer the password prompt for you
 .SH SYNOPSIS
@@ -88,6 +88,14 @@ typed at a terminal, never to scp, sftp, rsync or a command given on the
 command line.
 .BI "sshc \-\-no\-entry " host
 skips them once.
+.PP
+Given before the host instead,
+.BI \-\-dir " directory"
+and
+.BI \-\-entry " command"
+apply to that one connection without being stored, and also to a command
+given after the host, which is then run in that directory after the entry
+command.
 .SH OTHER COMMANDS
 .TP
 .BI "sshc check " destination

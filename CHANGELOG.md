@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1
+
+- `--dir` and `--entry` can be given inline, for one connection, before the host: `sshc --dir /var/www w.go-2`. Nothing is stored.
+- Inline, they also apply when you give a command: `sshc --dir /var/www w.go-2 git status` runs it in that directory, after the entry command, and stops if either fails.
+- An inline value replaces the stored one for that connection; `--no-entry` may now appear anywhere before the host, and wins over both.
+- They are long options only on a connection: `-d` and `-e` there would be read as ssh's own.
+
 ## 0.7.0
 
 - A start directory and an entry command per host: `sshc set -H HOST -d /var/www` and `sshc set -H HOST -e 'COMMAND'` (`--dir`, `--entry`). An interactive login to that host then starts in the directory, runs the command, and hands over to your normal login shell.

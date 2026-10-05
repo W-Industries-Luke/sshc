@@ -148,8 +148,18 @@ func runTool(tool string, args []string) int {
 	// A start directory or entry command is not a secret: it applies whether
 	// or not anything is stored, and whether or not sshc is locked.
 	if tool == "ssh" {
-		if path, err := findConfig(); err == nil && path != "" && checkConfigSecure(path) == nil {
-			args = withEntry(args, path)
+		rest, inline, err := extractEntryFlags(args)
+		if err != nil {
+			warnf("%v", err)
+			return 1
+		}
+		path, err := findConfig()
+		if err != nil || path != "" && checkConfigSecure(path) != nil {
+			path = "" // reported properly further down; no stored settings then
+		}
+		if args, err = withEntry(rest, path, inline); err != nil {
+			warnf("%v", err)
+			return 1
 		}
 	}
 	cfgPath, ok, plain := prepare(tool)

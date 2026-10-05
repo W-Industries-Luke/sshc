@@ -154,7 +154,7 @@ the password or passphrase prompt when ssh calls back. Because ssh does the aski
 - every option of the wrapped tool works, because sshc passes your arguments on
   as they are (the one exception is opt-in: a
   [start directory or entry command](#a-start-directory-and-an-entry-command)
-  you set for a host);
+  you set for a host or give with `--dir` / `--entry`);
 - `~/.ssh/config` aliases, `ProxyJump`, port forwards, etc. behave as usual;
 - the secret is never on a command line, where `ps` would show it.
 
@@ -234,8 +234,8 @@ brew install W-Industries-Luke/tap/sshc                                   # macO
 `amd64` and `arm64`, which install `sshc` to `/usr/bin` with its man page:
 
 ```console
-$ sudo apt install ./sshc_0.7.0_amd64.deb        # Debian, Ubuntu
-$ sudo dnf install ./sshc-0.7.0-1.x86_64.rpm     # Fedora, RHEL
+$ sudo apt install ./sshc_0.7.1_amd64.deb        # Debian, Ubuntu
+$ sudo dnf install ./sshc-0.7.1-1.x86_64.rpm     # Fedora, RHEL
 ```
 
 **Manual download** - download the one file for your system, then run it once
@@ -470,6 +470,9 @@ combine:
 | `-o` | `--otp` | a [one-time code](#one-time-codes); needs `-H` and `-c` |
 | `-d PATH` | `--dir PATH` | with `-H`: the [directory a login starts in](#a-start-directory-and-an-entry-command) |
 | `-e CMD` | `--entry CMD` | with `-H`: a command run on the host before your shell |
+
+`--dir` and `--entry` (long forms only) can also go straight on a connection:
+`sshc --dir /var/www w.go-2`.
 | `-f` | `--plain` | keep it in the config file, in plain text |
 | `-n` | `--no-clear` | do not clear the screen afterwards |
 | `-h` | `--help` | show the options |
@@ -528,7 +531,25 @@ $ sshc w.go-2                 # lands in /var/www, with the venv active
 without them once, put `--no-entry` first: `sshc --no-entry w.go-2`. Setting
 `SSHC_NO_ENTRY=1` does the same for everything run in that terminal.
 
-They apply **only to an interactive login**: plain `sshc w.go-2` typed at a
+**For one connection only**, give the same two things inline, before the
+host, without storing anything:
+
+```console
+$ sshc --dir /var/www w.go-2                       # log in there, this once
+$ sshc --dir /var/www --entry 'source venv/bin/activate' w.go-2
+$ sshc --dir /var/www w.go-2 git status            # run a command there
+$ sshc --dir ~/app --entry 'source venv/bin/activate' w.go-2 make test
+```
+
+Inline, they also work together with a command of your own: sshc runs it in
+that directory, after the entry command, and stops if either of those fails.
+An inline value takes the place of the stored one for that connection (so
+`--dir` alone still uses the host's stored entry command at a login).
+They have to come before the host - after it, everything belongs to the
+remote command - and they have no one-letter form here, because `-d` and `-e`
+on an ssh command line would be read as ssh's own options.
+
+Stored settings apply **only to an interactive login**: plain `sshc w.go-2` typed at a
 terminal, with nothing after the host. Everything else is left exactly as
 you typed it - a command of your own (`sshc w.go-2 uptime`), `sshc scp`,
 `sftp`, `rsync`, `each`, `run`, port forwarding with `-N`, and input that is
@@ -618,7 +639,7 @@ startup file and your key is unlocked in every session without typing.
 $ sshc doctor
 
   ok       OpenSSH client: OpenSSH_9.6p1
-  ok       sshc 0.7.0 at /home/luke/.local/bin/sshc
+  ok       sshc 0.7.1 at /home/luke/.local/bin/sshc
   PROBLEM  the shell hook is not loaded in this terminal
            -> add this line to your shell's startup file and open a new terminal:
               command -v sshc >/dev/null 2>&1 && eval "$(sshc --shell-init posix)"
@@ -1134,7 +1155,7 @@ repository is also an action that installs sshc on the runner:
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: W-Industries-Luke/sshc@v0.7.0
+  - uses: W-Industries-Luke/sshc@v0.7.1
   - run: |
       mkdir -p ~/.ssh && echo "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
       sshc scp -r ./site deploy@example.com:/var/www
