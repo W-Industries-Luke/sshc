@@ -194,8 +194,10 @@ func cmdCheck(args []string) int {
 			if !exists(file) {
 				continue
 			}
-			if passphrase, from, _ := r.lookupPassphrase(key); passphrase != "" {
+			if passphrase, from, note := r.lookupPassphrase(key); passphrase != "" {
 				fmt.Printf("  key %s: passphrase from %s\n", key, from)
+			} else if note != "" {
+				fmt.Printf("  key %s: no usable passphrase (%s)\n", key, note)
 			} else {
 				fmt.Printf("  key %s: no stored passphrase; you would be prompted if it has one\n", key)
 			}

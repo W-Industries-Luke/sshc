@@ -41,6 +41,7 @@ func decodeDests(s string) []dest {
 
 // resolver finds the stored password for a prompt.
 type resolver struct {
+	store   secretStore // nil until first needed; see openStore
 	cfg     *config
 	dests   []dest
 	environ []string // "KEY=value" pairs
@@ -98,6 +99,38 @@ func (r *resolver) hasEnvPasswords() bool {
 	return false
 }
 
+func (r *resolver) openStore() (secretStore, error) {
+	if r.store != nil {
+		return r.store, nil
+	}
+	st, err := systemStore()
+	if err == nil {
+		r.store = st
+	}
+	return st, err
+}
+
+// secret reads a password or passphrase entry of the config file, following
+// it into the credential store when the file only holds the marker.
+func (r *resolver) secret(section, key string) (value, from, note string) {
+	v, _ := r.cfg.get(section, key)
+	if v == "" {
+		return "", "", ""
+	}
+	if v != storeMarker {
+		return v, fmt.Sprintf("[%s] in %s", section, r.cfg.path), ""
+	}
+	st, err := r.openStore()
+	if err != nil {
+		return "", "", fmt.Sprintf("the %s of [%s] is kept in the credential store, which cannot be used here: %v", key, section, err)
+	}
+	got, err := st.get(storeKey(section, key))
+	if err != nil {
+		return "", "", fmt.Sprintf("could not read the %s of [%s] from %s: %v", key, section, st.name(), err)
+	}
+	return got, fmt.Sprintf("[%s], kept in %s", section, st.name()), ""
+}
+
 // activeProfile is the profile selected by $SSHC_PROFILE or the config file.
 func (r *resolver) activeProfile() string {
 	if p := r.getenv("SSHC_PROFILE"); p != "" {
@@ -151,8 +184,11 @@ func (r *resolver) lookupPassphrase(keyPath string) (passphrase, from, note stri
 				} else {
 					match = !strings.Contains(n, "/") && n == base
 				}
-				if v, _ := r.cfg.get("key "+name, "passphrase"); match && v != "" {
-					return v, fmt.Sprintf("[key %s] in %s", name, r.cfg.path), ""
+				if !match {
+					continue
+				}
+				if v, from, note := r.secret("key "+name, "passphrase"); v != "" || note != "" {
+					return v, from, note
 				}
 			}
 		}
@@ -162,9 +198,7 @@ func (r *resolver) lookupPassphrase(keyPath string) (passphrase, from, note stri
 		return v, "environment variable SSHC_PASSPHRASE", ""
 	}
 	if profile := r.activeProfile(); profile != "" {
-		if v, ok := r.cfg.get("profile "+profile, "passphrase"); ok && v != "" {
-			return v, fmt.Sprintf("[profile %s] in %s", profile, r.cfg.path), ""
-		}
+		return r.secret("profile "+profile, "passphrase")
 	}
 	return "", "", ""
 }
@@ -197,8 +231,8 @@ func (r *resolver) lookup(user, host string) (password, from, note string) {
 		}
 	}
 	for _, k := range keys {
-		if v, ok := r.cfg.get("host "+k, "password"); ok && v != "" {
-			return v, fmt.Sprintf("[host %s] in %s", k, r.cfg.path), ""
+		if v, from, note := r.secret("host "+k, "password"); v != "" || note != "" {
+			return v, from, note
 		}
 	}
 
@@ -212,8 +246,8 @@ func (r *resolver) lookup(user, host string) (password, from, note string) {
 	if profile == "" {
 		return "", "", ""
 	}
-	if v, ok := r.cfg.get("profile "+profile, "password"); ok && v != "" {
-		return v, fmt.Sprintf("[profile %s] in %s", profile, r.cfg.path), ""
+	if v, from, note := r.secret("profile "+profile, "password"); v != "" || note != "" {
+		return v, from, note
 	}
 	// A profile that only carries a key passphrase is not a mistake.
 	if v, _ := r.cfg.get("profile "+profile, "passphrase"); v != "" {

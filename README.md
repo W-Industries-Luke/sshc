@@ -4,7 +4,7 @@
 password, or the passphrase of your SSH key, for you.
 
 ```console
-$ sshc set --session          # type it once, hidden; kept for this terminal only
+$ sshc set -s                 # type it once, hidden; kept for this terminal only
 $ sshc w.go-2                 # no prompt
 $ sshc scp -r ./site w.go-2:/var/www
 ```
@@ -43,9 +43,9 @@ sshc is a thin wrapper around the OpenSSH client you already have. It is a
 single executable with no runtime dependencies - no `sshpass`, no `expect` -
 and runs on Linux, macOS and Windows.
 
-> sshc stores secrets in plain text for convenience. Where you can, prefer an
-> SSH key with [`ssh-agent`](#a-safer-alternative-ssh-agent), which gives you
-> the same no-prompt logins without a readable secret on disk.
+> Where you can, prefer an SSH key with
+> [`ssh-agent`](#a-safer-alternative-ssh-agent): it gives you the same
+> no-prompt logins with no stored secret at all. sshc is for everything else.
 
 ## Contents
 
@@ -61,10 +61,12 @@ and runs on Linux, macOS and Windows.
   - [4. Store the password or passphrase](#4-store-the-password-or-passphrase)
   - [5. Check, then connect](#5-check-then-connect)
 - [Usage](#usage)
+  - [sshc's own commands](#sshcs-own-commands)
   - [Moving a host to a key](#moving-a-host-to-a-key)
 - [Storing passwords and passphrases](#storing-passwords-and-passphrases)
-  - [Environment variables (preferred)](#environment-variables-preferred)
+  - [Environment variables](#environment-variables)
     - [The shell hook](#the-shell-hook)
+  - [The credential store](#the-credential-store)
   - [Config file](#config-file)
   - [Which one is used](#which-one-is-used)
   - [Jump hosts](#jump-hosts)
@@ -82,14 +84,10 @@ you type both at a prompt when you connect. sshc can answer either, but you
 have to store the right kind. **The wording of the prompt tells you which one
 you have:**
 
-| ssh asks | What it is | Stored as | Store it with |
-| -------- | ---------- | --------- | ------------- |
-| `luke@203.0.113.7's password:` | a **login password**: your account's password on the server | `SSHC_PASSWORD` | `sshc set --session` |
-| `Enter passphrase for key '/home/luke/.ssh/id_ed25519':` | a **key passphrase**: it unlocks a private key file on *your* machine, and never leaves it | `SSHC_PASSPHRASE` | `sshc set --session --passphrase` |
-
-(`--session` keeps it in the current terminal's environment only. Leave it off
-to save to the config file instead - see
-[Storing passwords and passphrases](#storing-passwords-and-passphrases).)
+| ssh asks | What it is | Store it with |
+| -------- | ---------- | ------------- |
+| `luke@203.0.113.7's password:` | a **login password**: your account's password on the server | `sshc set` |
+| `Enter passphrase for key '/home/luke/.ssh/id_ed25519':` | a **key passphrase**: it unlocks a private key file on *your* machine, and never leaves it | `sshc set -p` |
 
 Not sure? Run plain `ssh yourhost` once and read the prompt.
 
@@ -118,6 +116,7 @@ To run sshc:
 | OpenSSH client (`ssh`, `scp`, `sftp`) | 8.5 or newer | everything; preinstalled on Linux, macOS and Windows 10/11 |
 | `rsync` | any | `sshc rsync` only |
 | `ssh-copy-id` | any | `sshc ssh-copy-id` only; ships with OpenSSH on Linux and macOS |
+| `secret-tool` (`libsecret-tools`) and a running keyring | any | Linux only, and optional: lets `sshc set` use the encrypted keyring instead of a plain-text file |
 
 sshc itself is one self-contained executable. It does **not** need `sshpass`,
 `expect`, Python or any other runtime. Supported platforms are Linux, macOS
@@ -256,42 +255,44 @@ Host w.go-2
 ### 4. Store the password or passphrase
 
 First work out [which of the two](#password-or-passphrase) your host asks for.
-Then choose where it should live.
+Then choose how long it should be kept. Either way you type it hidden, twice.
 
-**In this terminal only (preferred).** Nothing is written to disk; the secret
-is held in an environment variable of the terminal you are in.
+**For this terminal only** - add `-s` (`--session`). Nothing is written
+anywhere; the secret is held in an environment variable of the terminal you
+are in.
 
 ```console
-$ sshc set --session                # a login password
-$ sshc set --session --passphrase   # or: the passphrase of your SSH key
+$ sshc set -s                 # a login password
+$ sshc set -sp                # or: the passphrase of your SSH key
 New passphrase:
 Again:
 Updated!
   SSHC_PASSPHRASE is set for this terminal session only.
 ```
 
-You type it hidden, twice. It then **stays in effect until you set it again or
-close the terminal** - every `sshc` command in that terminal uses it, and no
-other terminal can see it.
+It **stays in effect until you set it again or close the terminal**: every
+`sshc` command in that terminal uses it, and no other terminal can see it.
+`-s` relies on a small [shell hook](#the-shell-hook), which the installer sets
+up on Linux and macOS and is two lines to add on Windows.
 
-`--session` relies on a small [shell hook](#the-shell-hook). The installer
-script and `sshc --install` set it up on Linux and macOS; on Windows, and after
-installing with Scoop or Homebrew, it is one line to add yourself. Without the
-hook you can set the variable by hand - see
-[Environment variables](#environment-variables-preferred).
-
-**In every terminal.** Leave off `--session` and sshc saves to its
-[config file](#config-file) instead, where it stays until you change it:
+**For every terminal, until you remove it** - leave `-s` off. The secret goes
+into your system's [credential store](#the-credential-store) (Windows
+Credential Manager, macOS Keychain, the Linux keyring), encrypted:
 
 ```console
 $ sshc set                    # a login password
-$ sshc set --passphrase       # or: the passphrase of your SSH key
+$ sshc set -p                 # or: the passphrase of your SSH key
+Updated!
+  passphrase of [profile default], kept in Windows Credential Manager
 ```
+
+`sshc list` shows what is stored and where (never the values), and
+`sshc unset` removes an entry.
 
 ### 5. Check, then connect
 
 ```console
-$ sshc --check w.go-2
+$ sshc check w.go-2
 config file: none
 w.go-2 -> 203.0.113.7 (user luke)
   no stored password; you would be prompted
@@ -299,7 +300,7 @@ w.go-2 -> 203.0.113.7 (user luke)
 $ sshc w.go-2
 ```
 
-`--check` does not connect and never prints a secret. It lists the login
+`check` does not connect and never prints a secret. It lists the login
 password and each key file ssh would try for that host, so a line saying "no
 stored password" is fine when you log in with a key, as above. The first time you
 reach a new host, ssh still asks you to confirm its host key, as always.
@@ -327,9 +328,45 @@ $ sshc rsync -av --delete ./site/ w.go-2:/var/www/
 $ sshc ssh-copy-id w.go-2
 ```
 
-`sshc -v` and `sshc -h` on their own are short for `--version` and `--help`.
-Together with a destination they keep their ssh meaning, so `sshc -v w.go-2`
-is still ssh's verbose mode.
+### sshc's own commands
+
+Besides running the tools above, sshc has a few commands of its own:
+
+| Command | Does |
+| ------- | ---- |
+| `sshc set` | store a login password; `-p` for a key passphrase |
+| `sshc unset` | remove a stored one |
+| `sshc list` | show what is stored and where, never the values |
+| `sshc check <destination>` | show which stored secret a connection would use |
+| `sshc install` | copy sshc to a per-user folder and put it on `PATH` |
+| `sshc init` | create a config file template |
+| `sshc shell-init [shell]` | print the [shell hook](#the-shell-hook) |
+| `sshc help`, `sshc version` | also `-h` and `-v` |
+
+`check`, `install`, `init`, `shell-init`, `help` and `version` can also be
+written with a leading `--` (`sshc --check ...`).
+
+Every option of `set` and `unset` has a one-letter form, and the letters
+combine:
+
+| Short | Long | Meaning |
+| ----- | ---- | ------- |
+| `-s` | `--session` | this terminal only, as an environment variable |
+| `-p` | `--passphrase` | a key passphrase rather than a login password |
+| `-H NAME` | `--host NAME` | the login password of one host |
+| `-k NAME` | `--key NAME` | the passphrase of one key |
+| `-P NAME` | `--profile NAME` | a profile other than the active one |
+| `-f` | `--plain` | keep it in the config file, in plain text |
+| `-n` | `--no-clear` | do not clear the screen afterwards |
+| `-h` | `--help` | show the options |
+
+So `sshc set -sp` is `sshc set --session --passphrase`, and
+`sshc set -H w.go-2` stores a password for that host only.
+
+sshc does not use single letters for `check`, `install` and the rest, because
+`-c`, `-i` and friends are already ssh options and are passed through to ssh.
+For the same reason `sshc -v` and `sshc -h` mean `version` and `help` only
+when given on their own: `sshc -v w.go-2` is still ssh's verbose mode.
 
 A host that happens to share a name with a subcommand is reachable through
 the explicit form, e.g. `sshc ssh scp` or `sshc ssh set`.
@@ -352,42 +389,44 @@ If nothing is stored anywhere, sshc simply runs the tool.
 
 ## Storing passwords and passphrases
 
-### Environment variables (preferred)
+A secret can live in one of three places. sshc looks in all of them, and
+`sshc list` shows what is where.
+
+| Place | Set with | Lasts | Protection |
+| ----- | -------- | ----- | ---------- |
+| An environment variable | `sshc set -s` | until the terminal closes | in memory only |
+| Your system's credential store | `sshc set` | until you `sshc unset` it | encrypted, tied to your login |
+| The config file, in plain text | `sshc set --plain`, or by hand | until you remove it | file permissions only |
+
+### Environment variables
 
 `SSHC_PASSWORD` is the active login password and `SSHC_PASSPHRASE` the active
 key passphrase. They live in the terminal that set them and the programs it
 starts, so different terminals can hold different values at the same time, and
 nothing is written to disk.
 
-`sshc set --session` sets them for you, asking for the value hidden:
+`sshc set -s` sets them for you, asking for the value hidden:
 
 | Command | Sets |
 | ------- | ---- |
-| `sshc set --session` | `SSHC_PASSWORD` |
-| `sshc set --session --passphrase` | `SSHC_PASSPHRASE` |
-| `sshc set --session --host w.go-2` | `SSHC_PASSWORD_W_GO_2`, for that one host |
-| `sshc set --session --key id_ed25519` | `SSHC_PASSPHRASE_ID_ED25519`, for that one key |
+| `sshc set -s` | `SSHC_PASSWORD` |
+| `sshc set -sp` | `SSHC_PASSPHRASE` |
+| `sshc set -s -H w.go-2` | `SSHC_PASSWORD_W_GO_2`, for that one host |
+| `sshc set -s -k id_ed25519` | `SSHC_PASSPHRASE_ID_ED25519`, for that one key |
 
 A value set this way **stays in effect for the rest of that terminal session**.
-Every `sshc` command you run there uses it until you set it again, unset it,
-or close the terminal - it is not asked for again and does not expire. Other
-terminals, including ones you open later, are unaffected and start without it.
-A variable also takes precedence over the config file, so plain `sshc set`
-does not change what a terminal with the variable set will use.
-
-```bash
-unset SSHC_PASSWORD                  # bash / zsh: stop using it in this terminal
-```
-
-```powershell
-Remove-Item Env:SSHC_PASSWORD        # PowerShell
-```
+Every `sshc` command you run there uses it until you set it again, remove it
+with `sshc unset -s` (`-sp`, ...), or close the terminal - it is not asked for
+again and does not expire. Other terminals, including ones you open later, are
+unaffected and start without it. A variable also takes precedence over
+anything saved, so plain `sshc set` does not change what a terminal with the
+variable set will use.
 
 #### The shell hook
 
 A program cannot change the environment of the terminal that started it, so
-`--session` works through a few lines of shell code that wrap the `sshc`
-command. They have to be loaded when your shell starts:
+`-s` works through a few lines of shell code that wrap the `sshc` command.
+They have to be loaded when your shell starts:
 
 | Shell | Add this line to | Line |
 | ----- | ---------------- | ---- |
@@ -407,7 +446,8 @@ Add-Content $PROFILE 'sshc --shell-init powershell | Out-String | Invoke-Express
 If new PowerShell windows then say that running scripts is disabled, allow
 your own profile with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 Open a new terminal afterwards. `sshc --shell-init` prints the hook if you
-want to read it first; all it does is intercept `sshc set --session`.
+want to read it first; all it does is hand `sshc set` and `sshc unset` to the
+real program and apply the one variable change it asks for.
 
 #### Without the hook
 
@@ -436,40 +476,64 @@ upper-cased, with everything that is not a letter or digit turned into `_`:
 A passphrase that belongs to one key works the same way, with the key's file
 name: `SSHC_PASSPHRASE_ID_ED25519` for `~/.ssh/id_ed25519`.
 
-### Config file
+### The credential store
 
-Without `--session`, `sshc set` saves to the config file, creating it if
-needed. Use it for a secret you want available in every terminal without
-setting it each time. Which option you give decides what is saved:
+Without `-s`, `sshc set` saves the secret so that it is there in every
+terminal, in the place your operating system provides for exactly this:
+
+| System | Store | Needs |
+| ------ | ----- | ----- |
+| Windows | Credential Manager | nothing; entries appear as `sshc:...` under *Windows Credentials* |
+| macOS | the login Keychain | nothing; entries have the service name `sshc` |
+| Linux | the Secret Service keyring (GNOME Keyring, KWallet, KeePassXC) | `secret-tool` from `libsecret-tools`, and a keyring running in your session |
+
+There the secret is encrypted and tied to your login, and it is never written
+to a file sshc owns. Which option you give decides what is saved:
 
 | Command | Saves |
 | ------- | ----- |
 | `sshc set` | the login password of the active profile |
-| `sshc set --passphrase` | the key passphrase of the active profile, tried for any key |
-| `sshc set --host w.go-2` | the login password for that one host |
-| `sshc set --key id_ed25519` | the passphrase for that one key (file name or full path) |
+| `sshc set -p` | the key passphrase of the active profile, tried for any key |
+| `sshc set -H w.go-2` | the login password for that one host |
+| `sshc set -k id_ed25519` | the passphrase for that one key (file name or full path) |
 
-Add `--profile NAME` to the first two to save into a profile other than the
-active one. Each command asks for the value hidden; you can also put it at the
-end of the command (`sshc set 'correct horse'`), with the caveats below.
+Add `-P NAME` to the first two to save into a profile other than the active
+one. Each command asks for the value hidden; you can also put it at the end of
+the command (`sshc set 'correct horse'`), with the caveats below.
+`sshc unset` takes the same options and removes the entry, and `sshc list`
+shows everything that is stored:
 
-The file is the persistent counterpart of the environment variables, which
-still win in a terminal where they are set.
+```console
+$ sshc list
+config file: /home/luke/.local/bin/sshc.conf
+credential store: the system keyring (Secret Service)
+active profile: default
+
+Stored:
+  [host w.go-2]                password    credential store
+  [profile default]            passphrase  credential store
+```
 
 When the value is given on the command line, sshc clears the screen and
 scrollback afterwards so it is not left on display. `--no-clear`, or
 `clear_on_set = no` in the config file, turns that off. Clearing the screen
 does not remove the command from your **shell history**, and the argument is
-briefly visible to other users in the process list - use plain `sshc set` to
+briefly visible to other users in the process list - leave the value off to
 avoid both.
 
-You can also edit the file by hand. `sshc --init` creates `sshc.conf` next to
-the sshc executable. If that location is not writable, or sshc was installed
-by a package manager (Scoop, Homebrew, winget - they replace that folder on
-every upgrade), the file goes in your user config directory instead:
-`~/.config/sshc/` on Linux, `~/Library/Application Support/sshc/` on macOS,
-`%AppData%\sshc\` on Windows. `$SSHC_CONFIG` points somewhere else, and
-`sshc --check` always shows which file is in use.
+**Where there is no credential store** - a server, a container, a Linux
+session without a keyring - `sshc set` says so and keeps the secret in the
+config file in plain text instead. `sshc set --plain` asks for that
+explicitly, and `SSHC_CREDENTIAL_STORE=off` turns the store off altogether.
+An entry saved to the store on your desktop cannot be read from an SSH
+session into the same machine if the keyring is not unlocked there; `sshc
+check` tells you when that is the case.
+
+### Config file
+
+The config file, `sshc.conf`, holds sshc's settings and the list of what is
+saved. For a secret kept in the credential store it only records that the
+entry exists:
 
 ```ini
 # The active profile. $SSHC_PROFILE overrides this per shell.
@@ -477,23 +541,35 @@ profile = work
 
 # A profile holds a login password, a key passphrase, or both.
 [profile work]
-password = correct horse battery staple
-passphrase = unlocks my ssh key
-
-[profile home]
-password = hunter2
+password = @credential-store
+passphrase = @credential-store
 
 # One host's login password. Always wins over the active profile.
 [host w.go-2]
-password = something else
+password = @credential-store
 
 # One key's passphrase. Always wins over the active profile.
 [key id_ed25519]
-passphrase = something else again
+passphrase = @credential-store
 ```
+
+`sshc set` and `sshc unset` maintain this file for you, so there is normally
+no reason to open it. You can still edit it by hand: change the active
+profile, set `clear_on_set = no`, or write a secret straight into it in plain
+text (`password = hunter2`), which is what `sshc set --plain` does. Because it
+may hold plain-text secrets, on Linux and macOS sshc refuses to read the file
+unless it is owned by you with mode 600.
 
 Switch profile for one shell with `export SSHC_PROFILE=home`, or for one
 command with `SSHC_PROFILE=home sshc w.go-2`.
+
+`sshc --init` creates the file next to the sshc executable. If that location
+is not writable, or sshc was installed by a package manager (Scoop, Homebrew,
+winget - they replace that folder on every upgrade), the file goes in your
+user config directory instead: `~/.config/sshc/` on Linux,
+`~/Library/Application Support/sshc/` on macOS, `%AppData%\sshc\` on Windows.
+`$SSHC_CONFIG` points somewhere else, and `sshc list` always shows which file
+is in use.
 
 Values run to the end of the line and are taken literally. The file is parsed
 as data and nothing in it is ever executed.
@@ -505,9 +581,9 @@ First match wins. The two columns never cross over:
 |   | For a login password prompt | For a key passphrase prompt |
 | - | --------------------------- | --------------------------- |
 | 1 | `SSHC_PASSWORD_<HOST>` | `SSHC_PASSPHRASE_<KEYFILE>` |
-| 2 | `[host <name>]` in the config file | `[key <name>]` in the config file |
+| 2 | a saved `[host <name>]` entry (`sshc set -H`) | a saved `[key <name>]` entry (`sshc set -k`) |
 | 3 | `SSHC_PASSWORD` | `SSHC_PASSPHRASE` |
-| 4 | `password =` in the active profile | `passphrase =` in the active profile |
+| 4 | the active profile's saved password (`sshc set`) | the active profile's saved passphrase (`sshc set -p`) |
 
 A host entry can be written with the alias you type or with the real host
 name, with or without `user@`. A key entry can be the key's file name or its
@@ -555,22 +631,31 @@ What sshc does:
   lets you type instead of repeating it and locking the account.
 - **Never accepts a host key for you.** Your `StrictHostKeyChecking` setting is
   untouched.
+- **Keeps saved secrets in your system's credential store**, encrypted and
+  tied to your login, rather than in a file of its own.
 - **Refuses a config file other users can read** (Linux and macOS: it must be
-  owned by you with mode 600).
-- **Keeps passwords off command lines and out of its own output.**
+  owned by you with mode 600), since that file may hold plain-text secrets.
+- **Keeps secrets off command lines and out of its own output.** No command
+  prints a stored value back.
 
 What it cannot do:
 
-- A password in an environment variable is readable by other processes running
+- **Protect a secret from programs running as you.** sshc hands the secret to
+  ssh without asking, so other software under your account can obtain it the
+  same way - whichever of the three places it is kept in. The credential
+  store protects against someone reading your disk, a backup or another
+  account on the machine, not against malware in your own session.
+- A secret in an environment variable is readable by other processes running
   as you (and by root), like any environment variable. Do not add `SSHC_*` to
   `SendEnv` in your ssh config.
-- A password in `sshc.conf` is plain text on disk. Never commit that file.
+- A secret written into `sshc.conf` (`--plain`, by hand, or where there is no
+  credential store) is plain text on disk. Never commit that file. On Windows
+  it is protected by the folder's ACL rather than a mode check, so keep it
+  somewhere under your user profile.
 - A stored **key passphrase** deserves extra thought. The passphrase exists so
   that someone who copies your private key file still cannot use it. Stored in
   plain text on the same machine, it no longer protects against anyone who can
   read your files - it is then roughly as safe as a key with no passphrase.
-- On Windows the config file is protected by the folder's ACL rather than a
-  mode check, so keep it somewhere under your user profile.
 
 ### A safer alternative: ssh-agent
 
@@ -607,14 +692,12 @@ scheduled jobs, or on machines where you cannot run one.
 ## Troubleshooting
 
 **It still asks me for the password.** Run `sshc --check <destination>` with
-the same arguments. If it says "no stored password", the variable is not set
-in this terminal (a value from `sshc set --session` does not carry over to new
-ones) or the config file is
-not where sshc looks - the first line of the output shows which file is in
-use.
+the same arguments. If it says "no stored password", nothing matching is
+stored: a value from `sshc set -s` does not carry over to new terminals, and
+`sshc list` shows everything that is saved and which config file is in use.
 
 Then read the prompt itself. `Enter passphrase for key ...` needs a stored
-*passphrase* (`sshc set --passphrase`), and `...'s password:` needs a stored
+*passphrase* (`sshc set -p`), and `...'s password:` needs a stored
 *password* (`sshc set`); having only the other kind is the most common reason
 for still being asked. See [Password or passphrase?](#password-or-passphrase).
 Otherwise the prompt may come from a [jump host](#jump-hosts), or be a
@@ -626,6 +709,12 @@ the secret itself).
 **"the stored password for ... was not accepted"** (or passphrase). It was
 rejected, so sshc stopped offering it and let you type. Update the stored
 value.
+
+**"... is kept in the credential store, which cannot be used here".** The
+entry was saved to the credential store, and this session cannot reach it -
+typically an SSH login or a scheduled job on Linux, where no keyring is
+unlocked. Set the variable for that session (`sshc set -s`), or store that
+entry with `sshc set --plain`.
 
 **"--session needs the sshc shell hook".** The [shell hook](#the-shell-hook)
 is not loaded in this terminal. Add the line the message shows to your shell's

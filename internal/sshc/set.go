@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"golang.org/x/term"
@@ -14,30 +15,40 @@ import (
 
 const setUsage = `Usage: sshc set [options] [--] [value]
 
-Saves a login password, or the passphrase of an SSH key. Without a value you are asked to type it, hidden - which also keeps it out of
-your shell history.
+Stores a login password, or the passphrase of an SSH key. Without a value you
+are asked to type it, hidden - which also keeps it out of your shell history.
 
-Where to save it:
-  (no option)       the config file: kept, and used in every terminal
-  --session         this terminal only: sets the SSHC_* environment variable,
+Every option has a short form, and short forms combine: "sshc set -sp" is
+"sshc set --session --passphrase".
+
+Where it is kept:
+  (no option)       your system's credential store (Windows Credential
+                    Manager, macOS Keychain, the Linux keyring): encrypted,
+                    and used in every terminal. Where there is none, the
+                    config file, in plain text.
+  -s, --session     this terminal only: sets the SSHC_* environment variable,
                     nothing is written to disk and it is gone when the
                     terminal closes. Needs the shell hook - "sshc --install"
                     sets it up, or see "sshc --shell-init".
+  -f, --plain       the config file, in plain text, even where a credential
+                    store exists
 
-What to save:
+What to store:
   (no option)       the login password of the active profile
-  --passphrase      the key passphrase of the active profile, tried for any key
-  --host NAME       the login password of one host; NAME as you type it for
+  -p, --passphrase  the key passphrase of the active profile, tried for any key
+  -H, --host NAME   the login password of one host; NAME as you type it for
                     ssh, optionally with "user@"
-  --key NAME        the passphrase of one key; NAME is the key's file name
+  -k, --key NAME    the passphrase of one key; NAME is the key's file name
                     (id_ed25519) or its full path
 
 Other options:
-  --profile NAME    use that profile instead of the active one
-  --no-clear        do not clear the screen after a value given as argument
+  -P, --profile NAME  use that profile instead of the active one
+  -n, --no-clear    do not clear the screen after a value given as argument
                     (or put "clear_on_set = no" in the config file)
 
 The active profile is created as "default" if there is none yet.
+"sshc unset" takes the same options and removes an entry; "sshc list" shows
+what is stored, never the values.
 `
 
 // quoteValue writes a value so that parseConfig reads back exactly v.
@@ -168,9 +179,229 @@ func clearScreen(w *os.File) {
 	fmt.Fprint(w, "\x1b[H\x1b[2J\x1b[3J")
 }
 
+// deleteConfigValue removes key from section, and the section header with it
+// if nothing else is left there. It reports whether the key was present.
+func deleteConfigValue(lines []string, section, key string) ([]string, bool) {
+	target := configKey(section, "")
+	current := configKey("", "")
+	header, found, others := -1, -1, 0
+	for i, raw := range lines {
+		line := strings.TrimSpace(raw)
+		switch {
+		case line == "" || line[0] == '#' || line[0] == ';':
+		case line[0] == '[' && line[len(line)-1] == ']':
+			current = configKey(line[1:len(line)-1], "")
+			if current == target && found < 0 {
+				header, others = i, 0
+			}
+		case current == target && strings.Contains(line, "="):
+			k, _, _ := strings.Cut(line, "=")
+			if found < 0 && strings.EqualFold(strings.TrimSpace(k), key) {
+				found = i
+			} else {
+				others++
+			}
+		}
+	}
+	if found < 0 {
+		return lines, false
+	}
+	var out []string
+	for i, raw := range lines {
+		if i == found || i == header && others == 0 {
+			continue
+		}
+		out = append(out, raw)
+	}
+	return out, true
+}
+
+// Short forms of the "set" and "unset" options. The ones in shortWithValue
+// take the next word (or the rest of the cluster) as their value.
+var (
+	shortFlags = map[byte]string{
+		's': "--session", 'p': "--passphrase", 'f': "--plain", 'n': "--no-clear", 'h': "--help",
+	}
+	shortWithValue = map[byte]string{'H': "--host", 'k': "--key", 'P': "--profile"}
+)
+
+// expandShort rewrites short options to their long forms, so "-sp" becomes
+// "--session --passphrase" and "-H box" becomes "--host box". Everything from
+// "--" on is left alone, as is a lone "-".
+func expandShort(args []string) (out []string, ok bool) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return append(out, args[i:]...), true
+		}
+		if len(arg) < 2 || arg[0] != '-' || arg[1] == '-' {
+			out = append(out, arg)
+			continue
+		}
+		for j := 1; j < len(arg); j++ {
+			if long, isFlag := shortFlags[arg[j]]; isFlag {
+				out = append(out, long)
+				continue
+			}
+			long, takesValue := shortWithValue[arg[j]]
+			if !takesValue {
+				return nil, false
+			}
+			if rest := arg[j+1:]; rest != "" {
+				out = append(out, long, rest)
+			} else if i+1 < len(args) {
+				i++
+				out = append(out, long, args[i])
+			} else {
+				out = append(out, long)
+			}
+			break
+		}
+	}
+	return out, true
+}
+
+// target is what a "set" or "unset" command line points at.
+type target struct {
+	profile, host, key  string
+	passphrase, session bool
+	plain, clear        bool
+	value               string
+	haveValue           bool
+}
+
+// parseTarget reads the options shared by "set" and "unset". done is true
+// when the caller should just return rc.
+func parseTarget(args []string, usage string, takesValue bool, out *os.File) (t target, rc int, done bool) {
+	t.clear = true
+	fail := func(format string, a ...any) (target, int, bool) {
+		warnf(format, a...)
+		return t, 1, true
+	}
+	args, ok := expandShort(args)
+	if !ok {
+		fmt.Fprint(os.Stderr, usage)
+		return t, 1, true
+	}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		name, val, attached := strings.Cut(arg, "=")
+		switch {
+		case arg == "--help":
+			fmt.Fprint(out, usage)
+			return t, 0, true
+		case arg == "--session":
+			t.session = true
+		case arg == "--plain" && takesValue:
+			t.plain = true
+		case arg == "--no-clear" && takesValue:
+			t.clear = false
+		case arg == "--passphrase":
+			t.passphrase = true
+		case name == "--profile" || name == "--host" || name == "--key":
+			if !attached {
+				i++
+				if i >= len(args) {
+					return fail("%s needs a name", name)
+				}
+				val = args[i]
+			}
+			if val == "" || strings.ContainsAny(val, "[]\n") {
+				return fail("%q is not a usable name", val)
+			}
+			switch name {
+			case "--profile":
+				t.profile = val
+			case "--host":
+				t.host = val
+			default:
+				t.key = val
+			}
+		case arg == "--" && takesValue && i+2 == len(args):
+			t.value, t.haveValue = args[i+1], true
+			i++
+		case strings.HasPrefix(arg, "-") && arg != "-" || t.haveValue || !takesValue:
+			fmt.Fprint(os.Stderr, usage)
+			return t, 1, true
+		default:
+			t.value, t.haveValue = arg, true
+		}
+	}
+	chosen := 0
+	for _, on := range []bool{t.host != "", t.key != "", t.profile != "" || t.passphrase} {
+		if on {
+			chosen++
+		}
+	}
+	if chosen > 1 {
+		return fail("--host, --key and --profile/--passphrase point at different entries; use one")
+	}
+	if t.session && t.profile != "" {
+		return fail("--session works on a variable in this terminal; it cannot be combined with --profile")
+	}
+	if t.session && t.plain {
+		return fail("--session and --plain are different places to keep it; use one")
+	}
+	return t, 0, false
+}
+
+// what is the kind of secret: "password" or "passphrase".
+func (t target) what() string {
+	if t.key != "" || t.passphrase {
+		return "passphrase"
+	}
+	return "password"
+}
+
+// envName is the environment variable that holds this secret for a session.
+func (t target) envName() string {
+	switch {
+	case t.host != "":
+		return hostEnvPrefix + strings.ToUpper(envSuffix(t.host))
+	case t.key != "":
+		return keyEnvPrefix + strings.ToUpper(envSuffix(path.Base(normKeyPath(t.key))))
+	}
+	return "SSHC_" + strings.ToUpper(t.what())
+}
+
+// section is the config file section this secret belongs to. For a profile it
+// also returns the profile's name.
+func (t target) section(cfg *config) (section, profile string) {
+	switch {
+	case t.host != "":
+		return "host " + t.host, ""
+	case t.key != "":
+		return "key " + t.key, ""
+	}
+	profile = t.profile
+	if profile == "" {
+		profile = os.Getenv("SSHC_PROFILE")
+	}
+	if profile == "" {
+		profile, _ = cfg.get("", "profile")
+	}
+	if profile == "" {
+		profile = "default"
+	}
+	return "profile " + profile, profile
+}
+
+// hookMissing explains that --session cannot work in this terminal.
+func hookMissing() int {
+	warnf("--session needs the sshc shell hook, which is not loaded in this terminal.")
+	fmt.Fprintf(os.Stderr, "  Add this line to your shell's startup file, then open a new terminal:\n    %s\n", hookLine(defaultShellKind()))
+	return 1
+}
+
+func readConfigLines(file string) ([]string, error) {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(strings.TrimRight(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n"), "\n"), nil
+}
+
 func cmdSet(args []string) int {
-	var profile, host, key, password string
-	havePassword, clear, passphrase, session := false, true, false, false
 	// Under the shell hook stdout is evaluated by the shell, so everything
 	// meant for the human goes to stderr.
 	emit := os.Getenv(envEmit)
@@ -178,188 +409,275 @@ func cmdSet(args []string) int {
 	if emit != "" {
 		out = os.Stderr
 	}
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		name, val, attached := strings.Cut(arg, "=")
-		switch {
-		case arg == "--help":
-			fmt.Fprint(out, setUsage)
-			return 0
-		case arg == "--session":
-			session = true
-		case arg == "--no-clear":
-			clear = false
-		case arg == "--passphrase":
-			passphrase = true
-		case name == "--profile" || name == "--host" || name == "--key":
-			if !attached {
-				i++
-				if i >= len(args) {
-					warnf("%s needs a name", name)
-					return 1
-				}
-				val = args[i]
-			}
-			if val == "" || strings.ContainsAny(val, "[]\n") {
-				warnf("%q is not a usable name", val)
-				return 1
-			}
-			switch name {
-			case "--profile":
-				profile = val
-			case "--host":
-				host = val
-			default:
-				key = val
-			}
-		case arg == "--" && i+2 == len(args):
-			password, havePassword = args[i+1], true
-			i++
-		case strings.HasPrefix(arg, "-") && arg != "-" || havePassword:
-			fmt.Fprint(os.Stderr, setUsage)
-			return 1
-		default:
-			password, havePassword = arg, true
-		}
+	t, rc, done := parseTarget(args, setUsage, true, out)
+	if done {
+		return rc
 	}
-	chosen := 0
-	for _, on := range []bool{host != "", key != "", profile != "" || passphrase} {
-		if on {
-			chosen++
-		}
-	}
-	if chosen > 1 {
-		warnf("--host, --key and --profile/--passphrase save to different places; use one")
-		return 1
-	}
-	what := "password"
-	if key != "" || passphrase {
-		what = "passphrase"
-	}
-	fromArg := havePassword
+	what := t.what()
 
-	if session {
-		if profile != "" {
-			warnf("--session sets a variable in this terminal; it cannot be combined with --profile")
+	if t.session {
+		if _, ok := emitAssignment(emit, "X", ""); !ok {
+			return hookMissing()
+		}
+		// A shell runs a piped-into function in a subshell, where the
+		// variable would be set and immediately lost.
+		if !t.haveValue && !term.IsTerminal(int(os.Stdin.Fd())) {
+			warnf("with --session, type the %s when asked or give it as an argument; it cannot be piped in", what)
 			return 1
 		}
-		name := "SSHC_" + strings.ToUpper(what)
-		switch {
-		case host != "":
-			name = hostEnvPrefix + strings.ToUpper(envSuffix(host))
-		case key != "":
-			name = keyEnvPrefix + strings.ToUpper(envSuffix(path.Base(normKeyPath(key))))
-		}
-		if _, ok := emitAssignment(emit, name, ""); !ok {
-			warnf("--session needs the sshc shell hook, which is not loaded in this terminal.")
-			fmt.Fprintf(os.Stderr, "  Add this line to your shell's startup file, then open a new terminal:\n    %s\n", hookLine(defaultShellKind()))
-			return 1
-		}
-		if !havePassword {
-			// A shell runs a piped-into function in a subshell, where the
-			// variable would be set and immediately lost.
-			if !term.IsTerminal(int(os.Stdin.Fd())) {
-				warnf("with --session, type the %s when asked or give it as an argument; it cannot be piped in", what)
-				return 1
-			}
-			var err error
-			if password, err = readNewPassword(what); err != nil {
-				warnf("%v", err)
-				return 1
+	}
+
+	var cfgFile string
+	var cfg *config
+	var err error
+	if t.session {
+		// Only consulted for clear_on_set; a missing file is fine.
+		cfgFile, _ = findConfig()
+		cfg, _ = loadConfig(cfgFile)
+	} else {
+		cfgFile, err = findConfig()
+		if err == nil && cfgFile == "" {
+			if cfgFile, err = defaultConfigTarget(); err == nil {
+				err = createConfig(cfgFile)
 			}
 		}
-		if password == "" || strings.ContainsAny(password, "\r\n") {
-			warnf("the %s cannot be empty or contain a line break", what)
-			return 1
+		if err == nil {
+			cfg, err = loadConfig(cfgFile)
 		}
-		code, _ := emitAssignment(emit, name, password)
-		fmt.Println(code)
-
-		cfgPath, _ := findConfig()
-		cfg, _ := loadConfig(cfgPath)
-		if v, _ := cfg.get("", "clear_on_set"); fromArg && clear && !isNo(v) {
-			clearScreen(out)
-		}
-		fmt.Fprintln(out, "Updated!")
-		fmt.Fprintf(out, "  %s is set for this terminal session only.\n", name)
-		if fromArg {
-			fmt.Fprintf(out, "  Note: a %s typed as an argument stays in your shell history.\n", what)
-			fmt.Fprintln(out, "  Leave the value off to type it hidden instead.")
-		}
-		return 0
-	}
-
-	cfgFile, err := findConfig()
-	if err == nil && cfgFile == "" {
-		if cfgFile, err = defaultConfigTarget(); err == nil {
-			err = createConfig(cfgFile)
-		}
-	}
-	if err != nil {
-		warnf("%v", err)
-		return 1
-	}
-	cfg, err := loadConfig(cfgFile)
-	if err != nil {
-		warnf("%v", err)
-		return 1
-	}
-
-	if !havePassword {
-		if password, err = readNewPassword(what); err != nil {
+		if err != nil {
 			warnf("%v", err)
 			return 1
 		}
 	}
-	if password == "" || strings.ContainsAny(password, "\r\n") {
+
+	secret := t.value
+	if !t.haveValue {
+		if secret, err = readNewPassword(what); err != nil {
+			warnf("%v", err)
+			return 1
+		}
+	}
+	if secret == "" || strings.ContainsAny(secret, "\r\n") {
 		warnf("the %s cannot be empty or contain a line break", what)
 		return 1
 	}
+	if secret == storeMarker {
+		warnf("%q is reserved by sshc and cannot be used as a %s", storeMarker, what)
+		return 1
+	}
 
-	data, err := os.ReadFile(cfgFile)
+	var where, note string
+	if t.session {
+		code, _ := emitAssignment(emit, t.envName(), secret)
+		fmt.Println(code)
+		where = t.envName() + " is set for this terminal session only."
+	} else {
+		lines, err := readConfigLines(cfgFile)
+		if err != nil {
+			warnf("%v", err)
+			return 1
+		}
+		section, profile := t.section(cfg)
+		// The first profile ever saved becomes the active one.
+		if active, _ := cfg.get("", "profile"); profile != "" && active == "" {
+			lines = setConfigValue(lines, "", "profile", profile)
+		}
+
+		inFile := secret
+		st, storeErr := systemStore()
+		switch {
+		case t.plain || storeErr != nil:
+			if storeErr != nil && !t.plain {
+				note = fmt.Sprintf("Note: no credential store is available here (%v).", storeErr)
+			}
+			// Do not leave an older copy behind in the store.
+			if st != nil {
+				_ = st.del(storeKey(section, what))
+			}
+			where = fmt.Sprintf("%s of [%s], in plain text in %s", what, section, cfgFile)
+		default:
+			if err := st.set(storeKey(section, what), secret); err != nil {
+				warnf("could not save to %s: %v", st.name(), err)
+				fmt.Fprintln(os.Stderr, "  Nothing was changed. Add --plain to keep it in the config file instead.")
+				return 1
+			}
+			inFile = storeMarker
+			where = fmt.Sprintf("%s of [%s], kept in %s", what, section, st.name())
+		}
+		lines = setConfigValue(lines, section, what, inFile)
+		if err := writeConfig(cfgFile, lines); err != nil {
+			warnf("%v", err)
+			return 1
+		}
+		if envName := "SSHC_" + strings.ToUpper(what); t.host == "" && t.key == "" && os.Getenv(envName) != "" {
+			note = strings.TrimSpace(note + "\n  Note: " + envName + " is set in this shell and takes precedence here.")
+		}
+	}
+
+	if v, _ := cfg.get("", "clear_on_set"); t.haveValue && t.clear && !isNo(v) {
+		clearScreen(out)
+	}
+	fmt.Fprintln(out, "Updated!")
+	fmt.Fprintln(out, "  "+where)
+	if note != "" {
+		fmt.Fprintln(out, "  "+note)
+	}
+	if t.haveValue {
+		fmt.Fprintf(out, "  Note: a %s typed as an argument stays in your shell history.\n", what)
+		fmt.Fprintln(out, "  Leave the value off to type it hidden instead.")
+	}
+	return 0
+}
+
+const unsetUsage = `Usage: sshc unset [-s] [-p | -H NAME | -k NAME] [-P NAME]
+
+Removes a stored login password or key passphrase. The options name the entry
+the same way as for "sshc set": with none it is the login password of the
+active profile.
+
+  -s, --session       clear the variable in this terminal instead
+  -p, --passphrase    the key passphrase of the active profile
+  -H, --host NAME     the login password of one host
+  -k, --key NAME      the passphrase of one key
+  -P, --profile NAME  use that profile instead of the active one
+`
+
+func cmdUnset(args []string) int {
+	emit := os.Getenv(envEmit)
+	out := os.Stdout
+	if emit != "" {
+		out = os.Stderr
+	}
+	t, rc, done := parseTarget(args, unsetUsage, false, out)
+	if done {
+		return rc
+	}
+	what := t.what()
+
+	if t.session {
+		code, ok := emitUnset(emit, t.envName())
+		if !ok {
+			return hookMissing()
+		}
+		fmt.Println(code)
+		fmt.Fprintln(out, "Removed!")
+		fmt.Fprintf(out, "  %s is no longer set in this terminal.\n", t.envName())
+		return 0
+	}
+
+	cfgFile, err := findConfig()
+	var cfg *config
+	if err == nil {
+		cfg, err = loadConfig(cfgFile)
+	}
 	if err != nil {
 		warnf("%v", err)
 		return 1
 	}
-	lines := strings.Split(strings.TrimRight(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n"), "\n")
-
-	section := "host " + host
-	if key != "" {
-		section = "key " + key
-	} else if host == "" {
-		active, _ := cfg.get("", "profile")
-		if profile == "" {
-			profile = os.Getenv("SSHC_PROFILE")
-		}
-		if profile == "" {
-			profile = active
-		}
-		if profile == "" {
-			profile = "default"
-		}
-		// The first profile ever saved becomes the active one.
-		if active == "" {
-			lines = setConfigValue(lines, "", "profile", profile)
-		}
-		section = "profile " + profile
+	section, _ := t.section(cfg)
+	current, _ := cfg.get(section, what)
+	if current == "" {
+		warnf("there is no stored %s for [%s]", what, section)
+		return 1
 	}
-	lines = setConfigValue(lines, section, what, password)
-	if err := writeConfig(cfgFile, lines); err != nil {
+	if current == storeMarker {
+		st, err := systemStore()
+		if err == nil {
+			err = st.del(storeKey(section, what))
+		}
+		if err != nil && !errors.Is(err, errNotFound) {
+			warnf("could not remove it from the credential store: %v", err)
+			return 1
+		}
+	}
+	lines, err := readConfigLines(cfgFile)
+	if err == nil {
+		lines, _ = deleteConfigValue(lines, section, what)
+		err = writeConfig(cfgFile, lines)
+	}
+	if err != nil {
 		warnf("%v", err)
 		return 1
 	}
+	fmt.Fprintln(out, "Removed!")
+	fmt.Fprintf(out, "  %s of [%s]\n", what, section)
+	return 0
+}
 
-	if v, _ := cfg.get("", "clear_on_set"); fromArg && clear && !isNo(v) {
-		clearScreen(out)
+// cmdList shows what is stored and where, never the values.
+func cmdList(args []string) int {
+	if len(args) > 0 {
+		warnf("usage: %s list", prog)
+		return 1
 	}
-	fmt.Fprintln(out, "Updated!")
-	fmt.Fprintf(out, "  %s of [%s] in %s\n", what, section, cfgFile)
-	if fromArg {
-		fmt.Fprintf(out, "  Note: a %s typed as an argument stays in your shell history.\n", what)
-		fmt.Fprintln(out, "  Leave the value off to type it hidden instead.")
+	cfgFile, err := findConfig()
+	var cfg *config
+	if err == nil {
+		cfg, err = loadConfig(cfgFile)
 	}
-	if envName := "SSHC_" + strings.ToUpper(what); host == "" && key == "" && os.Getenv(envName) != "" {
-		fmt.Fprintf(out, "  Note: %s is set in this shell and takes precedence here.\n", envName)
+	if err != nil {
+		warnf("%v", err)
+		return 1
+	}
+	st, storeErr := systemStore()
+	if cfgFile == "" {
+		fmt.Println("config file: none")
+	} else {
+		fmt.Println("config file:", cfgFile)
+	}
+	if storeErr != nil {
+		fmt.Printf("credential store: not available (%v)\n", storeErr)
+	} else {
+		fmt.Println("credential store:", st.name())
+	}
+	r := newResolver(cfg, nil)
+	if p := r.activeProfile(); p != "" {
+		fmt.Println("active profile:", p)
+	}
+
+	var rows []string
+	if cfg != nil {
+		for k, v := range cfg.entries {
+			section, key, _ := strings.Cut(k, "\n")
+			kind, _, _ := strings.Cut(section, " ")
+			if v == "" || key != "password" && key != "passphrase" || kind != "profile" && kind != "host" && kind != "key" {
+				continue
+			}
+			place := "plain text in the config file"
+			if v == storeMarker {
+				place = "credential store"
+				if storeErr != nil {
+					place += " (not readable here)"
+				} else if _, err := st.get(storeKey(section, key)); errors.Is(err, errNotFound) {
+					place += " - MISSING, set it again"
+				} else if err != nil {
+					place += " (could not be read: " + err.Error() + ")"
+				}
+			}
+			rows = append(rows, fmt.Sprintf("  %-28s %-11s %s", "["+section+"]", key, place))
+		}
+	}
+	sort.Strings(rows)
+	fmt.Println()
+	if len(rows) == 0 {
+		fmt.Println("Nothing is stored.")
+	} else {
+		fmt.Println("Stored:")
+		fmt.Println(strings.Join(rows, "\n"))
+	}
+
+	var vars []string
+	for _, kv := range os.Environ() {
+		k, v, _ := strings.Cut(kv, "=")
+		up := strings.ToUpper(k)
+		if v != "" && (up == "SSHC_PASSWORD" || up == "SSHC_PASSPHRASE" || strings.HasPrefix(up, hostEnvPrefix) || strings.HasPrefix(up, keyEnvPrefix)) {
+			vars = append(vars, "  "+k)
+		}
+	}
+	if len(vars) > 0 {
+		sort.Strings(vars)
+		fmt.Println("\nSet in this terminal (these take precedence):")
+		fmt.Println(strings.Join(vars, "\n"))
 	}
 	return 0
 }

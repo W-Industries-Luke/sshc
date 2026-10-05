@@ -5,6 +5,68 @@ import (
 	"testing"
 )
 
+func TestExpandShort(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"-sp", "--session --passphrase"},
+		{"-s -p", "--session --passphrase"},
+		{"-H box", "--host box"},
+		{"-Hbox", "--host box"},
+		{"-sk id_ed25519", "--session --key id_ed25519"},
+		{"-P work -fn", "--profile work --plain --no-clear"},
+		{"-h", "--help"},
+		{"--session value", "--session value"},
+		{"-s -- -p", "--session -- -p"},
+		{"-", "-"},
+		{"-k", "--key"},
+	}
+	for _, tt := range tests {
+		got, ok := expandShort(strings.Fields(tt.in))
+		if !ok || strings.Join(got, " ") != tt.want {
+			t.Errorf("expandShort(%q) = %q, %v; want %q", tt.in, got, ok, tt.want)
+		}
+	}
+	for _, bad := range []string{"-x", "-sx", "-sZ value"} {
+		if got, ok := expandShort(strings.Fields(bad)); ok {
+			t.Errorf("expandShort(%q) = %q; want a rejection", bad, got)
+		}
+	}
+}
+
+func TestDeleteConfigValue(t *testing.T) {
+	file := strings.Split(`profile = work
+
+[profile work]
+password = a
+passphrase = b
+
+# about the host
+[host box]
+password = c
+
+[key id]
+passphrase = d`, "\n")
+	join := func(l []string) string { return strings.Join(l, "\n") }
+
+	got, ok := deleteConfigValue(file, "profile work", "password")
+	if !ok || !strings.Contains(join(got), "[profile work]\npassphrase = b") || strings.Contains(join(got), "password = a") {
+		t.Errorf("delete one of two keys:\n%s", join(got))
+	}
+	got, ok = deleteConfigValue(file, "HOST box", "Password")
+	if !ok || strings.Contains(join(got), "[host box]") || strings.Contains(join(got), "password = c") || !strings.Contains(join(got), "# about the host") {
+		t.Errorf("delete the only key should drop the header:\n%s", join(got))
+	}
+	got, ok = deleteConfigValue(file, "key id", "passphrase")
+	if !ok || strings.Contains(join(got), "[key id]") {
+		t.Errorf("delete in the last section:\n%s", join(got))
+	}
+	if got, ok := deleteConfigValue(file, "host nope", "password"); ok || join(got) != join(file) {
+		t.Error("deleting a missing entry should change nothing")
+	}
+	if got, ok := deleteConfigValue(file, "host box", "passphrase"); ok || join(got) != join(file) {
+		t.Error("deleting a missing key should change nothing")
+	}
+}
+
 func TestSetConfigValue(t *testing.T) {
 	join := func(l []string) string { return strings.Join(l, "\n") }
 	file := strings.Split(`# top comment

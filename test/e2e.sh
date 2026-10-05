@@ -12,7 +12,10 @@ trap 'docker rm -f "$name" >/dev/null 2>&1; rm -rf "$work"' EXIT
 mkdir "$work/bin"
 cp "$1" "$work/bin/sshc" || exit 2
 PATH=$work/bin:$PATH
-unset SSHC_PASSWORD SSHC_PROFILE SSHC_CONFIG
+unset SSHC_PASSWORD SSHC_PASSPHRASE SSHC_PROFILE SSHC_CONFIG
+# Keep the tests out of the developer's real keyring; the credential store
+# gets its own section below.
+export SSHC_CREDENTIAL_STORE=off
 cd "$work" || exit 2
 
 PW='s3cret pass#1'
@@ -138,6 +141,8 @@ fi
 unset SSHC_PASSWORD
 
 check "-v alone is the sshc version"  0 "sshc 0."   sshc -v
+check "word forms of the commands"   0 "sshc 0."   sshc version
+check "check as a word"              0 "w.go-2 -> 127.0.0.1" env SSHC_PASSWORD=x sshc check -F cfg w.go-2
 check "-h alone is the sshc help"     0 "Usage: sshc" sshc -h
 check "nothing stored: plain ssh"    0 "OpenSSH"  sshc -V
 check "--init next to the binary"    0 "$work/bin/sshc.conf" sshc --init
@@ -149,14 +154,23 @@ check "SSHC_PROFILE selects a profile" 255 "Permission denied" env SSHC_PROFILE=
 check "SSHC_PASSWORD beats the profile" 0 "hi"    env SSHC_PROFILE=bad "SSHC_PASSWORD=$PW" sshc -F cfg w.go-2 echo hi
 check "set saves the active profile" 0 "Updated!" sshc set 'new pw'
 check "set kept the other entries"   0 "password = jump-pw" cat bin/sshc.conf
-check "set replaced the password"    0 "[profile work] in" sshc set -- "$PW"
+check "set replaced the password"    0 "password of [profile work], in plain text in" sshc set -- "$PW"
 check "set from a pipe"              0 "Updated!" sh -c "printf '%s\\n' '$PW' | sshc set --profile piped"
 check "the piped profile logs in"    0 "hi"       env SSHC_PROFILE=piped sshc -F cfg w.go-2 echo hi
-check "set --host"                   0 "[host kbd] in" sshc set --host kbd "$PW"
-check "set --passphrase"              0 "passphrase of [profile work] in" sshc set --passphrase 'key phrase#2'
+check "set --host"                   0 "password of [host kbd], in plain text" sshc set --host kbd "$PW"
+check "set -H (short form)"          0 "password of [host short], in plain text" sshc set -H short x
+check "list names entries, not values" 0 "[host kbd]" sshc list
+if sshc list | grep -qF "$PW"; then
+	echo "FAIL list printed a password"
+	fails=$((fails + 1))
+fi
+check "unset removes an entry"       0 "password of [host short]" sshc unset -H short
+check "unset of a missing entry"     1 "no stored password for [host short]" sshc unset -H short
+check "unset left the others alone"  0 "hi"       sshc -F cfg kbd echo hi
+check "set --passphrase"              0 "passphrase of [profile work], in plain text" sshc set -p 'key phrase#2'
 check "set kept the profile password" 0 "hi"      sshc -F cfg w.go-2 echo hi
 check "passphrase from the profile"  0 "hi"       bash -c "$(declare -f keyssh); keyssh w.go-2 echo hi"
-check "set --key"                    0 "passphrase of [key enckey] in" sshc set --key enckey 'key phrase#2'
+check "set --key"                    0 "passphrase of [key enckey], in plain text" sshc set -k enckey 'key phrase#2'
 check "key section beats the profile" 0 "hi"      sh -c "sshc set --passphrase wrong >/dev/null && $(declare -f keyssh); keyssh w.go-2 echo hi"
 check "set refuses mixed targets"    1 "use one"  sshc set --host kbd --key enckey x
 check "set rejects stray options"    1 "Usage: sshc set" sshc set --bogus x
@@ -166,13 +180,33 @@ check "world-readable config is refused" 1 "chmod 600" sshc -F cfg w.go-2 true
 # --install into a scratch home directory.
 mkdir fakehome && chmod 600 bin/sshc.conf
 inst() { env "HOME=$work/fakehome" SHELL=/bin/bash "$@"; }
+# The real credential store, where this machine can run one.
+if command -v secret-tool >/dev/null && command -v gnome-keyring-daemon >/dev/null && command -v dbus-run-session >/dev/null; then
+	cat >keyring.sh <<KEYRING
+eval "\$(printf '\n' | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null)"
+sleep 1
+unset SSHC_CREDENTIAL_STORE
+printf '%s\n' '$PW' | sshc set -H kbd || exit 1
+grep -A1 '^\[host kbd\]' bin/sshc.conf
+sshc -F cfg kbd echo logged-in
+sshc unset -H kbd && ! secret-tool lookup service sshc account 'host kbd/password'
+KEYRING
+	check "credential store: set, connect, unset" 0 "logged-in" dbus-run-session -- bash keyring.sh
+	check "credential store keeps it out of the file" 0 "password = @credential-store" \
+		sh -c "dbus-run-session -- bash keyring.sh | head -4"
+else
+	echo "skip credential store (needs gnome-keyring, libsecret-tools and dbus)"
+fi
+
 check "--install copies the binary"  0 "Installed sshc" inst sshc --install
 check "installed binary runs"        0 "sshc "    fakehome/.local/bin/sshc --version
 check "--install moved the config"   0 "profile = work" cat fakehome/.local/bin/sshc.conf
 check "--install added a PATH line"  0 'export PATH="$HOME/.local/bin:$PATH"' cat fakehome/.bashrc
 check "--install added the shell hook" 0 'eval "$(sshc --shell-init posix)"' cat fakehome/.bashrc
-check "set --session through the hook" 0 "hi" \
-	env -u SSHC_PASSWORD "PW=$PW" bash -c 'eval "$(sshc --shell-init bash)"; sshc set --session "$PW" 2>/dev/null; sshc -F cfg -o PubkeyAuthentication=no kbd echo hi'
+check "set -s through the hook"      0 "hi" \
+	env -u SSHC_PASSWORD "PW=$PW" bash -c 'eval "$(sshc --shell-init bash)"; sshc set -s "$PW" 2>/dev/null; sshc -F cfg -o PubkeyAuthentication=no kbd echo hi'
+check "unset -s through the hook"    0 "[]" \
+	bash -c 'eval "$(sshc --shell-init bash)"; sshc set -sp x 2>/dev/null; sshc unset -sp 2>/dev/null; echo "[${SSHC_PASSPHRASE-}]"'
 check "set --session writes no file"  1 "" \
 	env "SSHC_CONFIG=$work/none.conf" bash -c 'eval "$(sshc --shell-init bash)"; sshc set --session x 2>/dev/null; test -e "$SSHC_CONFIG"'
 check "set --session without the hook" 1 "needs the sshc shell hook" sshc set --session x

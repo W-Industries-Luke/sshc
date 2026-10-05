@@ -9,29 +9,29 @@ import (
 )
 
 // A program cannot change the environment of the shell that started it, so
-// "sshc set --session" works through a small shell function that wraps the
-// sshc command. The function runs the real sshc with $SSHC_EMIT naming the
-// shell's syntax, and evaluates the one assignment sshc prints on stdout.
+// "sshc set --session" (and "unset --session") works through a small shell
+// function that wraps the sshc command. For "set" and "unset" the function
+// runs the real sshc with $SSHC_EMIT naming the shell's syntax, and evaluates
+// what sshc prints on stdout: one assignment in session mode, nothing
+// otherwise. sshc sends everything meant for the human to stderr meanwhile.
 const envEmit = "SSHC_EMIT"
 
 const hookPosix = `sshc() {
-	if [ "${1-}" = set ]; then
-		for __sshc_arg in "$@"; do
-			if [ "$__sshc_arg" = --session ]; then
-				__sshc_code=$(SSHC_EMIT=posix command sshc "$@") || { unset __sshc_arg __sshc_code; return 1; }
-				eval "$__sshc_code"
-				unset __sshc_arg __sshc_code
-				return 0
-			fi
-		done
-		unset __sshc_arg
-	fi
-	command sshc "$@"
+	case "${1-}" in
+	set | unset)
+		__sshc_code=$(SSHC_EMIT=posix command sshc "$@") || { unset __sshc_code; return 1; }
+		eval "$__sshc_code"
+		unset __sshc_code
+		;;
+	*)
+		command sshc "$@"
+		;;
+	esac
 }
 `
 
 const hookFish = `function sshc
-    if test (count $argv) -ge 2; and test "$argv[1]" = set; and contains -- --session $argv
+    if test (count $argv) -ge 1; and contains -- "$argv[1]" set unset
         set -l code (SSHC_EMIT=fish command sshc $argv); or return 1
         eval $code
     else
@@ -42,9 +42,11 @@ end
 
 const hookPowerShell = `function sshc {
     $exe = (Get-Command sshc -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-    if ($args.Count -ge 2 -and $args[0] -eq 'set' -and $args -contains '--session') {
+    if ($args.Count -ge 1 -and ($args[0] -eq 'set' -or $args[0] -eq 'unset')) {
         $env:SSHC_EMIT = 'powershell'
-        try { $code = & $exe @args } finally { Remove-Item Env:SSHC_EMIT -ErrorAction SilentlyContinue }
+        try {
+            if ($MyInvocation.ExpectingInput) { $code = $input | & $exe @args } else { $code = & $exe @args }
+        } finally { Remove-Item Env:SSHC_EMIT -ErrorAction SilentlyContinue }
         if ($LASTEXITCODE -eq 0 -and $code) { Invoke-Expression ($code -join [Environment]::NewLine) }
     } elseif ($MyInvocation.ExpectingInput) {
         $input | & $exe @args
@@ -124,6 +126,19 @@ func emitAssignment(kind, name, value string) (string, bool) {
 			v = strings.ReplaceAll(v, q, q+q)
 		}
 		return "$env:" + name + " = '" + v + "'", true
+	}
+	return "", false
+}
+
+// emitUnset renders "remove this variable from the current shell".
+func emitUnset(kind, name string) (string, bool) {
+	switch kind {
+	case "posix":
+		return "unset " + name, true
+	case "fish":
+		return "set -e " + name, true
+	case "powershell":
+		return "Remove-Item Env:" + name + " -ErrorAction SilentlyContinue", true
 	}
 	return "", false
 }

@@ -23,7 +23,7 @@ import (
 
 const (
 	prog    = "sshc"
-	version = "0.2.1"
+	version = "0.3.0"
 )
 
 const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
@@ -36,25 +36,34 @@ Runs the tool and answers its prompt for a login password, or for the
 passphrase of an SSH key, from what you have stored. Everything after the
 optional tool name is handed to that tool unchanged.
 
-  sshc set [--session] [value]  store a password or passphrase, for this
-                                terminal (--session) or in the config file;
-                                see "sshc set --help"
-  sshc --check [tool] args...   show where the password would come from
-  sshc --init                   create a config file template
-  sshc --install [directory]    copy sshc to a per-user directory, put it on
+  sshc set [-s] [-p] [value]    store a password, or with -p a key passphrase:
+                                in your system's credential store, or with -s
+                                for this terminal only ("sshc set -h")
+  sshc unset [-s] [-p]          remove one ("sshc unset -h")
+  sshc list                     show what is stored and where, not the values
+  sshc check [tool] args...     show where the password would come from
+  sshc init                     create a config file template
+  sshc install [directory]      copy sshc to a per-user directory, put it on
                                 your PATH and set up the shell hook
-  sshc --shell-init [shell]     print the shell hook that "set --session" needs
-  sshc --help | --version       also -h and -v, when given on their own
+  sshc shell-init [shell]       print the shell hook that "set -s" needs
+  sshc help | version           also -h and -v, when given on their own
+
+check, init, install, shell-init, help and version can also be written with a
+leading "--". A host that shares a name with one of these words is reachable
+as "sshc ssh <name>".
 
 Password sources, first match wins:
   1. $SSHC_PASSWORD_<HOST>   one host, e.g. SSHC_PASSWORD_W_GO_2 for "w.go-2"
-  2. [host <name>] section   in the config file
+  2. [host <name>] entry     saved with "sshc set --host"
   3. $SSHC_PASSWORD          the active password, for the host(s) you name
-  4. [profile <name>]        the active profile in the config file, selected
-                             by $SSHC_PROFILE or the file's "profile =" line
+  4. [profile <name>] entry  the active profile, selected by $SSHC_PROFILE or
+                             the config file's "profile =" line
 
 Key passphrases work the same way: $SSHC_PASSPHRASE_<KEYFILE>, a [key <name>]
 section, $SSHC_PASSPHRASE, then "passphrase =" in the active profile.
+
+Saved entries are listed in the config file; their values are kept in your
+system's credential store, or in the file itself where there is none.
 
 Config file: $SSHC_CONFIG, else sshc.conf next to the sshc executable, else
 sshc/sshc.conf in your user config directory. On Linux and macOS it must be
@@ -106,23 +115,30 @@ func Main(args []string) int {
 			args = []string{"--help"}
 		}
 	}
+	// Each action has a plain word as well as its "--" form. Single letters
+	// are not used for the ones that take arguments: "-c" and the like are
+	// ssh options, and "sshc -c x host" has to stay an ssh command.
 	switch args[0] {
-	case "--help":
+	case "--help", "help":
 		fmt.Print(usageText)
 		return 0
-	case "--version":
+	case "--version", "version":
 		fmt.Println(prog, version)
 		return 0
-	case "--init":
+	case "--init", "init":
 		return cmdInit()
-	case "--install":
+	case "--install", "install":
 		return cmdInstall(args[1:])
-	case "--shell-init":
+	case "--shell-init", "shell-init":
 		return cmdShellInit(args[1:])
-	case "--check":
+	case "--check", "check":
 		return cmdCheck(args[1:])
 	case "set":
 		return cmdSet(args[1:])
+	case "unset":
+		return cmdUnset(args[1:])
+	case "list":
+		return cmdList(args[1:])
 	}
 	tool := "ssh"
 	if isTool(args[0]) {

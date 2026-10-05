@@ -14,14 +14,19 @@ const configName = "sshc.conf"
 
 const configTemplate = `# sshc configuration.
 #
-# This file holds passwords in plain text. On Linux and macOS sshc refuses to
-# read it unless it is owned by you and private (chmod 600). Never commit it.
+# "sshc set" edits this file for you. Where your system has a credential
+# store (Windows Credential Manager, macOS Keychain, the Linux keyring) the
+# secret itself goes there, and the entry here reads:
+#
+#     password = @credential-store
+#
+# You can also write a password here yourself, in plain text. Because it may
+# hold plain-text passwords, sshc refuses to read this file on Linux and macOS
+# unless it is owned by you and private (chmod 600). Never commit it.
 #
 # Values run to the end of the line and are taken literally - there are no
 # escapes and no inline comments, so "#" and "=" are fine inside a password.
 # Wrap a value in quotes only if it starts or ends with a space.
-
-# "sshc set" edits this file for you.
 
 # "sshc set <password>" clears the screen afterwards; "no" turns that off.
 #clear_on_set = no
