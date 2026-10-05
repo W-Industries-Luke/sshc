@@ -93,8 +93,11 @@ else
 	echo "skip rsync (not installed)"
 fi
 if command -v ssh-copy-id >/dev/null; then
+	# ssh-copy-id keeps scratch files in ~/.ssh; give it one of its own.
 	ssh-keygen -q -t ed25519 -N '' -f key
-	check "ssh-copy-id installs the key" 0 "key(s) added: 1" sshc ssh-copy-id -i key.pub -F cfg w.go-2
+	mkdir -m 700 -p home/.ssh
+	check "ssh-copy-id installs the key" 0 "key(s) added: 1" \
+		env "HOME=$work/home" sshc ssh-copy-id -i key.pub -F cfg w.go-2
 	check "the installed key logs in"    0 "hi" \
 		env -u SSHC_PASSWORD ssh -F cfg -i key -o PubkeyAuthentication=yes -o BatchMode=yes w.go-2 echo hi
 else

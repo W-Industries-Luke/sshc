@@ -138,7 +138,7 @@ func scpColon(s string) int {
 	if s == "" || s[0] == ':' {
 		return -1
 	}
-	if runtime.GOOS == "windows" && len(s) >= 2 && s[1] == ':' {
+	if runtime.GOOS == "windows" && len(s) >= 2 && s[1] == ':' && isLetter(s[0]) {
 		return -1 // drive letter
 	}
 	bracket := s[0] == '['
@@ -155,6 +155,10 @@ func scpColon(s string) int {
 		}
 	}
 	return -1
+}
+
+func isLetter(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // bareHost strips "user@", "[...]" brackets and ":port" from a host spec.
