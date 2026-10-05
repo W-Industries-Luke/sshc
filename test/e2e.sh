@@ -74,6 +74,7 @@ done
 export SSHC_PASSWORD=$PW
 check "ssh by alias"                 0 "hi luke"  sshc -F cfg w.go-2 'echo hi $(whoami)'
 check "ssh by full connection string" 0 "hi luke" sshc -F cfg -p "$(port 22)" luke@127.0.0.1 'echo hi $(whoami)'
+check "-v with a host stays ssh -v"  0 "debug1: Authenticating to" sshc -v -F cfg -o LogLevel=DEBUG w.go-2 echo hi
 check "explicit ssh subcommand"      0 "hi"       sshc ssh -F cfg w.go-2 echo hi
 check "remote exit status is kept"   7 ""         sshc -F cfg w.go-2 'exit 7'
 check "keyboard-interactive"         0 "hi"       sshc -F cfg kbd echo hi
@@ -136,6 +137,8 @@ if sshc --check -F cfg w.go-2 2>&1 | grep -qF "$PW"; then
 fi
 unset SSHC_PASSWORD
 
+check "-v alone is the sshc version"  0 "sshc 0."   sshc -v
+check "-h alone is the sshc help"     0 "Usage: sshc" sshc -h
 check "nothing stored: plain ssh"    0 "OpenSSH"  sshc -V
 check "--init next to the binary"    0 "$work/bin/sshc.conf" sshc --init
 check "--init does not overwrite"    1 "already exists" sshc --init

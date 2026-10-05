@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/W-Industries-Luke/sshc/main/install
 brew install W-Industries-Luke/tap/sshc
 ```
 
-Then open a new terminal and run `sshc --version`. A `winget` package is
+Then open a new terminal and run `sshc --version` (or `sshc -v`). A `winget` package is
 prepared but not yet in Microsoft's catalog. Manual downloads, building from
 source and what each method does are covered in
 [Getting started](#2-install-sshc).
@@ -326,6 +326,10 @@ $ sshc sftp w.go-2
 $ sshc rsync -av --delete ./site/ w.go-2:/var/www/
 $ sshc ssh-copy-id w.go-2
 ```
+
+`sshc -v` and `sshc -h` on their own are short for `--version` and `--help`.
+Together with a destination they keep their ssh meaning, so `sshc -v w.go-2`
+is still ssh's verbose mode.
 
 A host that happens to share a name with a subcommand is reachable through
 the explicit form, e.g. `sshc ssh scp` or `sshc ssh set`.

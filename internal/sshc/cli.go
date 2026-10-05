@@ -23,7 +23,7 @@ import (
 
 const (
 	prog    = "sshc"
-	version = "0.2.0"
+	version = "0.2.1"
 )
 
 const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
@@ -44,7 +44,7 @@ optional tool name is handed to that tool unchanged.
   sshc --install [directory]    copy sshc to a per-user directory, put it on
                                 your PATH and set up the shell hook
   sshc --shell-init [shell]     print the shell hook that "set --session" needs
-  sshc --help | --version
+  sshc --help | --version       also -h and -v, when given on their own
 
 Password sources, first match wins:
   1. $SSHC_PASSWORD_<HOST>   one host, e.g. SSHC_PASSWORD_W_GO_2 for "w.go-2"
@@ -93,6 +93,18 @@ func Main(args []string) int {
 	if len(args) == 0 {
 		fmt.Print(usageText)
 		return 0
+	}
+	// On their own, -v and -h cannot mean anything to ssh, which needs a
+	// destination, so they are short for --version and --help. Next to a
+	// destination they are passed through: "sshc -v host" is still ssh's
+	// verbose mode.
+	if len(args) == 1 {
+		switch args[0] {
+		case "-v":
+			args = []string{"--version"}
+		case "-h":
+			args = []string{"--help"}
+		}
 	}
 	switch args[0] {
 	case "--help":
