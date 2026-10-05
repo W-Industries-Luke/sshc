@@ -4,7 +4,7 @@
 password, or the passphrase of your SSH key, for you.
 
 ```console
-$ sshc set                    # save it once, typed hidden
+$ sshc set --session          # type it once, hidden; kept for this terminal only
 $ sshc w.go-2                 # no prompt
 $ sshc scp -r ./site w.go-2:/var/www
 ```
@@ -64,6 +64,7 @@ and runs on Linux, macOS and Windows.
   - [Moving a host to a key](#moving-a-host-to-a-key)
 - [Storing passwords and passphrases](#storing-passwords-and-passphrases)
   - [Environment variables (preferred)](#environment-variables-preferred)
+    - [The shell hook](#the-shell-hook)
   - [Config file](#config-file)
   - [Which one is used](#which-one-is-used)
   - [Jump hosts](#jump-hosts)
@@ -81,10 +82,14 @@ you type both at a prompt when you connect. sshc can answer either, but you
 have to store the right kind. **The wording of the prompt tells you which one
 you have:**
 
-| ssh asks | What it is | Store it as | Save it with |
-| -------- | ---------- | ----------- | ------------ |
-| `luke@203.0.113.7's password:` | a **login password**: your account's password on the server | `SSHC_PASSWORD` | `sshc set` |
-| `Enter passphrase for key '/home/luke/.ssh/id_ed25519':` | a **key passphrase**: it unlocks a private key file on *your* machine, and never leaves it | `SSHC_PASSPHRASE` | `sshc set --passphrase` |
+| ssh asks | What it is | Stored as | Store it with |
+| -------- | ---------- | --------- | ------------- |
+| `luke@203.0.113.7's password:` | a **login password**: your account's password on the server | `SSHC_PASSWORD` | `sshc set --session` |
+| `Enter passphrase for key '/home/luke/.ssh/id_ed25519':` | a **key passphrase**: it unlocks a private key file on *your* machine, and never leaves it | `SSHC_PASSPHRASE` | `sshc set --session --passphrase` |
+
+(`--session` keeps it in the current terminal's environment only. Leave it off
+to save to the config file instead - see
+[Storing passwords and passphrases](#storing-passwords-and-passphrases).)
 
 Not sure? Run plain `ssh yourhost` once and read the prompt.
 
@@ -219,6 +224,8 @@ $ sshc --version
 
 After that you can delete the downloaded file. `sshc --install <directory>`
 installs somewhere else; running `--install` from a newer download upgrades.
+On Linux and macOS, `--install` also adds the [shell hook](#the-shell-hook)
+that `sshc set --session` needs.
 `SHA256SUMS` on the release page lets you verify the download.
 
 **From source instead** (needs [Go](https://go.dev/dl/) 1.26 or newer):
@@ -249,42 +256,46 @@ Host w.go-2
 ### 4. Store the password or passphrase
 
 First work out [which of the two](#password-or-passphrase) your host asks for.
+Then choose where it should live.
 
-**To keep it in every terminal**, save it in the [config file](#config-file).
-You type it hidden, twice:
+**In this terminal only (preferred).** Nothing is written to disk; the secret
+is held in an environment variable of the terminal you are in.
+
+```console
+$ sshc set --session                # a login password
+$ sshc set --session --passphrase   # or: the passphrase of your SSH key
+New passphrase:
+Again:
+Updated!
+  SSHC_PASSPHRASE is set for this terminal session only.
+```
+
+You type it hidden, twice. It then **stays in effect until you set it again or
+close the terminal** - every `sshc` command in that terminal uses it, and no
+other terminal can see it.
+
+`--session` relies on a small [shell hook](#the-shell-hook). The installer
+script and `sshc --install` set it up on Linux and macOS; on Windows, and after
+installing with Scoop or Homebrew, it is one line to add yourself. Without the
+hook you can set the variable by hand - see
+[Environment variables](#environment-variables-preferred).
+
+**In every terminal.** Leave off `--session` and sshc saves to its
+[config file](#config-file) instead, where it stays until you change it:
 
 ```console
 $ sshc set                    # a login password
 $ sshc set --passphrase       # or: the passphrase of your SSH key
-New passphrase:
-Again:
-Updated!
 ```
-
-**To keep it in the current terminal only**, with nothing written to disk, set
-an environment variable instead - `SSHC_PASSWORD` for a login password,
-`SSHC_PASSPHRASE` for a key passphrase:
-
-```bash
-# bash / zsh
-read -rs SSHC_PASSWORD && export SSHC_PASSWORD
-```
-
-```powershell
-# PowerShell 7
-$env:SSHC_PASSWORD = Read-Host -MaskInput 'Password'
-```
-
-Type it and press Enter; nothing is shown.
 
 ### 5. Check, then connect
 
 ```console
 $ sshc --check w.go-2
-config file: /home/luke/.local/bin/sshc.conf
+config file: none
 w.go-2 -> 203.0.113.7 (user luke)
   no stored password; you would be prompted
-  key ~/.ssh/id_ed25519: passphrase from [profile default] in /home/luke/.local/bin/sshc.conf
+  key ~/.ssh/id_ed25519: passphrase from environment variable SSHC_PASSPHRASE
 $ sshc w.go-2
 ```
 
@@ -340,16 +351,25 @@ If nothing is stored anywhere, sshc simply runs the tool.
 ### Environment variables (preferred)
 
 `SSHC_PASSWORD` is the active login password and `SSHC_PASSPHRASE` the active
-key passphrase. They live in the shell that set them and the programs that
-shell starts, so different terminals can hold different values at the same
-time.
+key passphrase. They live in the terminal that set them and the programs it
+starts, so different terminals can hold different values at the same time, and
+nothing is written to disk.
+
+`sshc set --session` sets them for you, asking for the value hidden:
+
+| Command | Sets |
+| ------- | ---- |
+| `sshc set --session` | `SSHC_PASSWORD` |
+| `sshc set --session --passphrase` | `SSHC_PASSPHRASE` |
+| `sshc set --session --host w.go-2` | `SSHC_PASSWORD_W_GO_2`, for that one host |
+| `sshc set --session --key id_ed25519` | `SSHC_PASSPHRASE_ID_ED25519`, for that one key |
 
 A value set this way **stays in effect for the rest of that terminal session**.
 Every `sshc` command you run there uses it until you set it again, unset it,
 or close the terminal - it is not asked for again and does not expire. Other
 terminals, including ones you open later, are unaffected and start without it.
-A variable also takes precedence over the config file, so `sshc set` does not
-change what a terminal with the variable set will use.
+A variable also takes precedence over the config file, so plain `sshc set`
+does not change what a terminal with the variable set will use.
 
 ```bash
 unset SSHC_PASSWORD                  # bash / zsh: stop using it in this terminal
@@ -359,7 +379,36 @@ unset SSHC_PASSWORD                  # bash / zsh: stop using it in this termina
 Remove-Item Env:SSHC_PASSWORD        # PowerShell
 ```
 
-Set it without it landing in your shell history:
+#### The shell hook
+
+A program cannot change the environment of the terminal that started it, so
+`--session` works through a few lines of shell code that wrap the `sshc`
+command. They have to be loaded when your shell starts:
+
+| Shell | Add this line to | Line |
+| ----- | ---------------- | ---- |
+| bash | `~/.bashrc` | `eval "$(sshc --shell-init bash)"` |
+| zsh | `~/.zshrc` | `eval "$(sshc --shell-init zsh)"` |
+| fish | `~/.config/fish/config.fish` | `sshc --shell-init fish \| source` |
+| PowerShell | the file `$PROFILE` names | `sshc --shell-init powershell \| Out-String \| Invoke-Expression` |
+
+On Linux and macOS, the installer script and `sshc --install` add the line for
+you. On Windows, run these two lines once:
+
+```powershell
+if (!(Test-Path $PROFILE)) { New-Item -Force -ItemType File $PROFILE | Out-Null }
+Add-Content $PROFILE 'sshc --shell-init powershell | Out-String | Invoke-Expression'
+```
+
+If new PowerShell windows then say that running scripts is disabled, allow
+your own profile with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+Open a new terminal afterwards. `sshc --shell-init` prints the hook if you
+want to read it first; all it does is intercept `sshc set --session`.
+
+#### Without the hook
+
+The variables are ordinary environment variables, so you can also set them
+yourself. These forms keep the value out of your shell history:
 
 ```bash
 # bash / zsh
@@ -385,8 +434,9 @@ name: `SSHC_PASSPHRASE_ID_ED25519` for `~/.ssh/id_ed25519`.
 
 ### Config file
 
-`sshc set` saves a secret in the config file, creating the file if needed.
-Which option you give decides what is saved:
+Without `--session`, `sshc set` saves to the config file, creating it if
+needed. Use it for a secret you want available in every terminal without
+setting it each time. Which option you give decides what is saved:
 
 | Command | Saves |
 | ------- | ----- |
@@ -399,9 +449,8 @@ Add `--profile NAME` to the first two to save into a profile other than the
 active one. Each command asks for the value hidden; you can also put it at the
 end of the command (`sshc set 'correct horse'`), with the caveats below.
 
-A program cannot change the environment of the shell that started it, so
-`sshc set` always writes to the file; it is the persistent counterpart of
-`SSHC_PASSWORD`, which still wins in a shell where it is set.
+The file is the persistent counterpart of the environment variables, which
+still win in a terminal where they are set.
 
 When the value is given on the command line, sshc clears the screen and
 scrollback afterwards so it is not left on display. `--no-clear`, or
@@ -555,7 +604,8 @@ scheduled jobs, or on machines where you cannot run one.
 
 **It still asks me for the password.** Run `sshc --check <destination>` with
 the same arguments. If it says "no stored password", the variable is not set
-in this terminal (it does not carry over to new ones) or the config file is
+in this terminal (a value from `sshc set --session` does not carry over to new
+ones) or the config file is
 not where sshc looks - the first line of the output shows which file is in
 use.
 
@@ -572,6 +622,10 @@ the secret itself).
 **"the stored password for ... was not accepted"** (or passphrase). It was
 rejected, so sshc stopped offering it and let you type. Update the stored
 value.
+
+**"--session needs the sshc shell hook".** The [shell hook](#the-shell-hook)
+is not loaded in this terminal. Add the line the message shows to your shell's
+startup file and open a new terminal.
 
 **"OpenSSH 8.5 or newer is required".** Upgrade the OpenSSH client. On Windows
 a newer one is available from the

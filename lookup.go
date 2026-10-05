@@ -59,15 +59,20 @@ func (r *resolver) getenv(name string) string {
 	return ""
 }
 
-// specificEnv looks for <prefix><KEY>, where non-alphanumerics in key become
-// "_" and case is ignored.
-func (r *resolver) specificEnv(prefix, key string) (value, name string) {
-	want := prefix + strings.Map(func(c rune) rune {
+// envSuffix turns a host or key name into the tail of a variable name.
+func envSuffix(key string) string {
+	return strings.Map(func(c rune) rune {
 		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' {
 			return c
 		}
 		return '_'
 	}, key)
+}
+
+// specificEnv looks for <prefix><KEY>, where non-alphanumerics in key become
+// "_" and case is ignored.
+func (r *resolver) specificEnv(prefix, key string) (value, name string) {
+	want := prefix + envSuffix(key)
 	for _, kv := range r.environ {
 		if k, v, ok := strings.Cut(kv, "="); ok && v != "" && strings.EqualFold(k, want) {
 			return v, k

@@ -68,3 +68,15 @@ func addToUserPath(dir string) (changed string, err error) {
 		hwndBroadcast, wmSettingChange, 0, uintptr(unsafe.Pointer(env)), smtoAbortIfHung, 5000, 0)
 	return "your user Path setting", nil
 }
+
+// installShellHook only explains the step on Windows. Whether PowerShell loads
+// a profile at all depends on the machine's execution policy, and a profile
+// it refuses to load produces an error in every new window - so the choice is
+// left to the user.
+func installShellHook() string {
+	return "Optional: to use \"sshc set --session\", load the shell hook from your PowerShell profile:\n" +
+		"    if (!(Test-Path $PROFILE)) { New-Item -Force -ItemType File $PROFILE | Out-Null }\n" +
+		"    Add-Content $PROFILE '" + hookLine("powershell") + "'\n" +
+		"  If new windows then report that running scripts is disabled, allow your own profile with:\n" +
+		"    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"
+}

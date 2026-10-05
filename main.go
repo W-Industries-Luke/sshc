@@ -15,7 +15,7 @@ import (
 
 const (
 	prog    = "sshc"
-	version = "0.1.1"
+	version = "0.2.0"
 )
 
 const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
@@ -28,11 +28,14 @@ Runs the tool and answers its prompt for a login password, or for the
 passphrase of an SSH key, from what you have stored. Everything after the
 optional tool name is handed to that tool unchanged.
 
-  sshc set [password]           save a password or passphrase ("sshc set --help")
+  sshc set [--session] [value]  store a password or passphrase, for this
+                                terminal (--session) or in the config file;
+                                see "sshc set --help"
   sshc --check [tool] args...   show where the password would come from
   sshc --init                   create a config file template
-  sshc --install [directory]    copy sshc to a per-user directory and put it
-                                on your PATH
+  sshc --install [directory]    copy sshc to a per-user directory, put it on
+                                your PATH and set up the shell hook
+  sshc --shell-init [shell]     print the shell hook that "set --session" needs
   sshc --help | --version
 
 Password sources, first match wins:
@@ -92,6 +95,8 @@ func run(args []string) int {
 		return cmdInit()
 	case "--install":
 		return cmdInstall(args[1:])
+	case "--shell-init":
+		return cmdShellInit(args[1:])
 	case "--check":
 		return cmdCheck(args[1:])
 	case "set":

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -13,9 +14,15 @@ import (
 
 const setUsage = `Usage: sshc set [options] [--] [value]
 
-Saves a login password, or the passphrase of an SSH key, in the config file.
-Without a value you are asked to type it, hidden - which also keeps it out of
+Saves a login password, or the passphrase of an SSH key. Without a value you are asked to type it, hidden - which also keeps it out of
 your shell history.
+
+Where to save it:
+  (no option)       the config file: kept, and used in every terminal
+  --session         this terminal only: sets the SSHC_* environment variable,
+                    nothing is written to disk and it is gone when the
+                    terminal closes. Needs the shell hook - "sshc --install"
+                    sets it up, or see "sshc --shell-init".
 
 What to save:
   (no option)       the login password of the active profile
@@ -153,24 +160,33 @@ func isNo(v string) bool {
 
 // clearScreen wipes the visible screen and the scrollback, where a password
 // typed as an argument would otherwise stay readable.
-func clearScreen() {
-	if !term.IsTerminal(int(os.Stdout.Fd())) {
+func clearScreen(w *os.File) {
+	if !term.IsTerminal(int(w.Fd())) {
 		return
 	}
-	enableVT(os.Stdout)
-	fmt.Print("\x1b[H\x1b[2J\x1b[3J")
+	enableVT(w)
+	fmt.Fprint(w, "\x1b[H\x1b[2J\x1b[3J")
 }
 
 func cmdSet(args []string) int {
 	var profile, host, key, password string
-	havePassword, clear, passphrase := false, true, false
+	havePassword, clear, passphrase, session := false, true, false, false
+	// Under the shell hook stdout is evaluated by the shell, so everything
+	// meant for the human goes to stderr.
+	emit := os.Getenv(envEmit)
+	out := os.Stdout
+	if emit != "" {
+		out = os.Stderr
+	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		name, val, attached := strings.Cut(arg, "=")
 		switch {
 		case arg == "--help":
-			fmt.Print(setUsage)
+			fmt.Fprint(out, setUsage)
 			return 0
+		case arg == "--session":
+			session = true
 		case arg == "--no-clear":
 			clear = false
 		case arg == "--passphrase":
@@ -222,17 +238,68 @@ func cmdSet(args []string) int {
 	}
 	fromArg := havePassword
 
-	path, err := findConfig()
-	if err == nil && path == "" {
-		if path, err = defaultConfigTarget(); err == nil {
-			err = createConfig(path)
+	if session {
+		if profile != "" {
+			warnf("--session sets a variable in this terminal; it cannot be combined with --profile")
+			return 1
+		}
+		name := "SSHC_" + strings.ToUpper(what)
+		switch {
+		case host != "":
+			name = hostEnvPrefix + strings.ToUpper(envSuffix(host))
+		case key != "":
+			name = keyEnvPrefix + strings.ToUpper(envSuffix(path.Base(normKeyPath(key))))
+		}
+		if _, ok := emitAssignment(emit, name, ""); !ok {
+			warnf("--session needs the sshc shell hook, which is not loaded in this terminal.")
+			fmt.Fprintf(os.Stderr, "  Add this line to your shell's startup file, then open a new terminal:\n    %s\n", hookLine(defaultShellKind()))
+			return 1
+		}
+		if !havePassword {
+			// A shell runs a piped-into function in a subshell, where the
+			// variable would be set and immediately lost.
+			if !term.IsTerminal(int(os.Stdin.Fd())) {
+				warnf("with --session, type the %s when asked or give it as an argument; it cannot be piped in", what)
+				return 1
+			}
+			var err error
+			if password, err = readNewPassword(what); err != nil {
+				warnf("%v", err)
+				return 1
+			}
+		}
+		if password == "" || strings.ContainsAny(password, "\r\n") {
+			warnf("the %s cannot be empty or contain a line break", what)
+			return 1
+		}
+		code, _ := emitAssignment(emit, name, password)
+		fmt.Println(code)
+
+		cfgPath, _ := findConfig()
+		cfg, _ := loadConfig(cfgPath)
+		if v, _ := cfg.get("", "clear_on_set"); fromArg && clear && !isNo(v) {
+			clearScreen(out)
+		}
+		fmt.Fprintln(out, "Updated!")
+		fmt.Fprintf(out, "  %s is set for this terminal session only.\n", name)
+		if fromArg {
+			fmt.Fprintf(out, "  Note: a %s typed as an argument stays in your shell history.\n", what)
+			fmt.Fprintln(out, "  Leave the value off to type it hidden instead.")
+		}
+		return 0
+	}
+
+	cfgFile, err := findConfig()
+	if err == nil && cfgFile == "" {
+		if cfgFile, err = defaultConfigTarget(); err == nil {
+			err = createConfig(cfgFile)
 		}
 	}
 	if err != nil {
 		warnf("%v", err)
 		return 1
 	}
-	cfg, err := loadConfig(path)
+	cfg, err := loadConfig(cfgFile)
 	if err != nil {
 		warnf("%v", err)
 		return 1
@@ -249,7 +316,7 @@ func cmdSet(args []string) int {
 		return 1
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(cfgFile)
 	if err != nil {
 		warnf("%v", err)
 		return 1
@@ -277,22 +344,22 @@ func cmdSet(args []string) int {
 		section = "profile " + profile
 	}
 	lines = setConfigValue(lines, section, what, password)
-	if err := writeConfig(path, lines); err != nil {
+	if err := writeConfig(cfgFile, lines); err != nil {
 		warnf("%v", err)
 		return 1
 	}
 
 	if v, _ := cfg.get("", "clear_on_set"); fromArg && clear && !isNo(v) {
-		clearScreen()
+		clearScreen(out)
 	}
-	fmt.Println("Updated!")
-	fmt.Printf("  %s of [%s] in %s\n", what, section, path)
+	fmt.Fprintln(out, "Updated!")
+	fmt.Fprintf(out, "  %s of [%s] in %s\n", what, section, cfgFile)
 	if fromArg {
-		fmt.Printf("  Note: a %s typed as an argument stays in your shell history.\n", what)
-		fmt.Println("  Leave the value off to type it hidden instead.")
+		fmt.Fprintf(out, "  Note: a %s typed as an argument stays in your shell history.\n", what)
+		fmt.Fprintln(out, "  Leave the value off to type it hidden instead.")
 	}
 	if envName := "SSHC_" + strings.ToUpper(what); host == "" && key == "" && os.Getenv(envName) != "" {
-		fmt.Printf("  Note: %s is set in this shell and takes precedence here.\n", envName)
+		fmt.Fprintf(out, "  Note: %s is set in this shell and takes precedence here.\n", envName)
 	}
 	return 0
 }

@@ -127,17 +127,17 @@ func cmdInstall(args []string) int {
 		}
 	}
 
+	status := 0
 	if onPath(dir) {
 		fmt.Printf("%s is already on your PATH.\n", dir)
-		return 0
-	}
-	changed, err := addToUserPath(dir)
-	if err != nil {
+	} else if changed, err := addToUserPath(dir); err != nil {
 		warnf("could not add %s to your PATH: %v", dir, err)
 		fmt.Printf("Add it yourself, then open a new terminal.\n")
-		return 1
+		status = 1
+	} else {
+		fmt.Printf("Added %s to your PATH (%s).\n", dir, changed)
 	}
-	fmt.Printf("Added %s to your PATH (%s).\n", dir, changed)
+	fmt.Println(installShellHook())
 	fmt.Printf("Open a new terminal, then run: %s --version\n", prog)
-	return 0
+	return status
 }
