@@ -31,6 +31,8 @@ optional tool name is handed to that tool unchanged.
   sshc set [password]           save a password or passphrase ("sshc set --help")
   sshc --check [tool] args...   show where the password would come from
   sshc --init                   create a config file template
+  sshc --install [directory]    copy sshc to a per-user directory and put it
+                                on your PATH
   sshc --help | --version
 
 Password sources, first match wins:
@@ -88,6 +90,8 @@ func run(args []string) int {
 		return 0
 	case "--init":
 		return cmdInit()
+	case "--install":
+		return cmdInstall(args[1:])
 	case "--check":
 		return cmdCheck(args[1:])
 	case "set":

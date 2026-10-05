@@ -86,7 +86,7 @@ sshc itself is one self-contained executable. It does **not** need `sshpass`,
 `expect`, Python or any other runtime. Supported platforms are Linux, macOS
 and Windows, on x86-64 and ARM64.
 
-To build sshc:
+To build sshc from source (not needed if you download a release):
 
 | Dependency | Version | Needed for |
 | ---------- | ------- | ---------- |
@@ -112,38 +112,69 @@ on Windows, enable it under *Settings > System > Optional features*.
 
 ### 2. Install sshc
 
-There are no prebuilt downloads yet, so you need [Go](https://go.dev/dl/) 1.26
-or newer to build it.
+Installing is two steps: download the one file for your system, then run it
+once with `--install`. That copies it to a per-user folder and puts that
+folder on your `PATH`, so that from then on you can type `sshc` anywhere. No
+administrator rights are needed.
+
+Download from the
+[latest release](https://github.com/W-Industries-Luke/sshc/releases/latest):
+
+| System | File |
+| ------ | ---- |
+| Windows (most PCs) | `sshc-windows-amd64.exe` |
+| Windows on ARM | `sshc-windows-arm64.exe` |
+| Linux (most PCs and servers) | `sshc-linux-amd64` |
+| Linux on ARM (Raspberry Pi, Graviton, ...) | `sshc-linux-arm64` |
+| macOS, Apple silicon | `sshc-darwin-arm64` |
+| macOS, Intel | `sshc-darwin-amd64` |
+
+**Windows** (PowerShell, in the folder you downloaded to)
+
+```powershell
+.\sshc-windows-amd64.exe --install
+```
+
+It installs to `%LOCALAPPDATA%\Programs\sshc` and adds that to your user
+`Path`. Windows may warn that the file is from an unknown publisher, because
+the binaries are not code-signed; choose *More info > Run anyway*, or build
+from source instead.
 
 **Linux and macOS**
+
+```console
+$ chmod +x sshc-linux-amd64
+$ ./sshc-linux-amd64 --install
+```
+
+It installs to `~/.local/bin`. If that is not on your `PATH` yet, it appends
+one line to your shell's startup file (`~/.bashrc`, `~/.zshrc`, ...) and tells
+you which. On macOS, a file downloaded with a browser has to be released from
+quarantine first: `xattr -d com.apple.quarantine sshc-darwin-arm64`.
+
+**Then open a new terminal** - the one you installed from still has the old
+`PATH` - and check:
+
+```console
+$ sshc --version
+```
+
+After that you can delete the downloaded file. `sshc --install <directory>`
+installs somewhere else; running `--install` from a newer download upgrades.
+`SHA256SUMS` on the release page lets you verify the download.
+
+**From source instead** (needs [Go](https://go.dev/dl/) 1.26 or newer):
 
 ```console
 $ go install github.com/W-Industries-Luke/sshc@latest
 ```
 
-This puts `sshc` in `~/go/bin`. If `sshc --version` is then "command not
-found", add that directory to your `PATH`:
+This puts `sshc` in Go's `bin` folder (`~/go/bin`), which the Go installer
+adds to `PATH` on Windows but usually not on Linux or macOS. From a clone,
+`make install` builds and copies to `~/.local/bin`.
 
-```console
-$ echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.bashrc    # or ~/.zshrc
-```
-
-Or, from a clone of this repository, `make install` builds it and copies it to
-`~/.local/bin`.
-
-**Windows** (PowerShell)
-
-```powershell
-go install github.com/W-Industries-Luke/sshc@latest
-sshc --version
-```
-
-The Go installer already puts `%USERPROFILE%\go\bin` on your `PATH`; open a
-new terminal if `sshc` is not found straight away.
-
-> Windows support is new. The Windows build passes its tests in CI, but has
-> seen far less real use than the Linux one - please open an issue if
-> something misbehaves.
+> Windows support is new and has seen far less real use than the Linux
+> build - please open an issue if something misbehaves.
 
 ### 3. Give your host a short name (optional)
 

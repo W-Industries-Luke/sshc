@@ -160,6 +160,18 @@ check "set rejects stray options"    1 "Usage: sshc set" sshc set --bogus x
 chmod 644 bin/sshc.conf
 check "world-readable config is refused" 1 "chmod 600" sshc -F cfg w.go-2 true
 
+# --install into a scratch home directory.
+mkdir fakehome && chmod 600 bin/sshc.conf
+inst() { env "HOME=$work/fakehome" SHELL=/bin/bash "$@"; }
+check "--install copies the binary"  0 "Installed sshc" inst sshc --install
+check "installed binary runs"        0 "sshc "    fakehome/.local/bin/sshc --version
+check "--install moved the config"   0 "profile = work" cat fakehome/.local/bin/sshc.conf
+check "--install added a PATH line"  0 'export PATH="$HOME/.local/bin:$PATH"' cat fakehome/.bashrc
+check "--install twice is harmless"  0 "already installed" inst fakehome/.local/bin/sshc --install
+check "PATH line is not duplicated"  0 "1"        grep -c 'export PATH' fakehome/.bashrc
+check "--install sees PATH already set" 0 "already on your PATH" \
+	env "HOME=$work/fakehome" "PATH=$work/fakehome/.local/bin:$PATH" fakehome/.local/bin/sshc --install
+
 leftover=$(find "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" -maxdepth 1 -name 'sshc-*' -newer cfg 2>/dev/null | grep -vc "^$work$")
 check "scratch directories are removed" 0 "" test "$leftover" = 0
 
