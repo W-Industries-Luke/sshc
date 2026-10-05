@@ -62,7 +62,8 @@ Only the latest release is supported.
   secrets; it does not encrypt them or move them. A program running as you
   can still read the credential store or a session variable directly, and
   can delete the lock file, which is an ordinary file in your user
-  directory. The lock is meant for a person at an unattended terminal and for
+  directory. So can a person at the keyboard who knows where it is, or who
+  sets the environment so that sshc looks for it elsewhere. The lock is meant for a person at an unattended terminal and for
   stray scripts, in the way a screen lock is. It is not a defence against
   malware, and should not be described as one.
 - **An administrator or root** on your machine.

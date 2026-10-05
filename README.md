@@ -1025,9 +1025,12 @@ protects against:
 
 It does **not** protect against software running under your account. Such a
 program has no need to go through sshc: it can read the credential store
-directly, read a session variable, or delete the lock file. The lock does
-not encrypt anything, and a secret that is stored stays exactly where it was.
-Treat it like locking your screen, not like a safe.
+directly, read a session variable, or delete the lock file. Nor does it stop
+a person who knows how sshc works: the lock is an ordinary file in your user
+directory, and removing it, or pointing sshc at a different directory,
+unlocks sshc without any verification. The lock does not encrypt anything,
+and a secret that is stored stays exactly where it was. Treat it like locking
+your screen, not like a safe.
 
 ### A safer alternative: ssh-agent
 
