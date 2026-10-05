@@ -176,6 +176,9 @@ func askpassMain(prompt string) int {
 	// Locked after this connection was started, or by the inactivity limit.
 	if isLocked(cfg) {
 		debugf("sshc is locked; asking on the terminal")
+		u := newUI(os.Stderr)
+		u.say("Note: " + lockedNotice)
+		u.flush()
 		return askTTY(prompt, false)
 	}
 	secret, from, note := find(newResolver(cfg, decodeDests(os.Getenv(envDests))))

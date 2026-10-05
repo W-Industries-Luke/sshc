@@ -132,8 +132,10 @@ if [ "$(id -u)" != 0 ]; then
 	check "lock switches sshc off"       0 "Locked!"  sshc lock
 	check "a locked sshc supplies nothing" 255 "sshc is locked" sshc -F cfg -o BatchMode=yes w.go-2 echo hi
 	check "list shows the lock"          0 "LOCKED"   sshc list
+	check "set says it is locked"        0 "sshc is locked. This is stored" sshc set -P locktest x
+	check "unset says it is locked"      0 "sshc is locked" sshc unset -P locktest
 	check "unlock needs to verify you"   1 "still locked" sshc unlock
-	rm -f "$SSHC_STATE_DIR/locked"
+	rm -f "$SSHC_STATE_DIR/locked" bin/sshc.conf
 	check "unlocked again"               0 "hi"       sshc -F cfg w.go-2 echo hi
 fi
 

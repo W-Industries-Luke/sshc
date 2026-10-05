@@ -157,3 +157,12 @@ func cmdUnlock(args []string) int {
 	u.say("sshc is switched on again.")
 	return 0
 }
+
+// sayIfLocked adds the reminder that sshc is locked to a command's output,
+// so that a change made while locked does not look like it had no effect.
+func sayIfLocked(u *ui) {
+	cfgPath, _ := findConfig()
+	if cfg, _ := loadConfig(cfgPath); isLocked(cfg) {
+		u.say("Note: " + lockedNotice)
+	}
+}

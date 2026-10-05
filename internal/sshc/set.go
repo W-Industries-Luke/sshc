@@ -575,6 +575,9 @@ func cmdSet(args []string) int {
 	if t.haveValue {
 		u.say("Note: a %s typed as an argument stays in your shell history.\nLeave the value off to type it hidden instead.", what)
 	}
+	if isLocked(cfg) {
+		u.say("Note: sshc is locked. This is stored, but nothing stored is used until you run \"sshc unlock\".")
+	}
 	u.flush()
 	return 0
 }
@@ -614,6 +617,7 @@ func cmdUnset(args []string) int {
 		u := newUI(out)
 		u.say("Removed!")
 		u.say("%s is no longer set in this terminal.", t.envName())
+		sayIfLocked(u)
 		u.flush()
 		return 0
 	}
@@ -656,6 +660,7 @@ func cmdUnset(args []string) int {
 	u := newUI(out)
 	u.say("Removed!")
 	u.say("%s of [%s]", what, section)
+	sayIfLocked(u)
 	u.flush()
 	return 0
 }
@@ -691,7 +696,7 @@ func cmdList(args []string) int {
 		head += "\nactive profile: " + p
 	}
 	if isLocked(cfg) {
-		head = "LOCKED: " + lockedNotice + "\n" + head
+		u.say("LOCKED: " + lockedNotice)
 	}
 	u.say("%s", head)
 

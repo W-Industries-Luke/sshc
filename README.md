@@ -225,8 +225,8 @@ brew install W-Industries-Luke/tap/sshc                                   # macO
 `amd64` and `arm64`, which install `sshc` to `/usr/bin` with its man page:
 
 ```console
-$ sudo apt install ./sshc_0.6.0_amd64.deb        # Debian, Ubuntu
-$ sudo dnf install ./sshc-0.6.0-1.x86_64.rpm     # Fedora, RHEL
+$ sudo apt install ./sshc_0.6.1_amd64.deb        # Debian, Ubuntu
+$ sudo dnf install ./sshc-0.6.1-1.x86_64.rpm     # Fedora, RHEL
 ```
 
 **Manual download** - download the one file for your system, then run it once
@@ -559,7 +559,7 @@ startup file and your key is unlocked in every session without typing.
 $ sshc doctor
 
   ok       OpenSSH client: OpenSSH_9.6p1
-  ok       sshc 0.6.0 at /home/luke/.local/bin/sshc
+  ok       sshc 0.6.1 at /home/luke/.local/bin/sshc
   PROBLEM  the shell hook is not loaded in this terminal
            -> add this line to your shell's startup file and open a new terminal:
               command -v sshc >/dev/null 2>&1 && eval "$(sshc --shell-init posix)"
@@ -1061,7 +1061,7 @@ repository is also an action that installs sshc on the runner:
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: W-Industries-Luke/sshc@v0.6.0
+  - uses: W-Industries-Luke/sshc@v0.6.1
   - run: |
       mkdir -p ~/.ssh && echo "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
       sshc scp -r ./site deploy@example.com:/var/www

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+- While sshc is locked, `sshc set`, `sshc unset` and `sshc use` now say so, so that a change made then does not look as if it had no effect. `sshc list` shows the lock as a message of its own, set apart by a blank line like every other message.
+
 ## 0.6.0
 
 - `sshc lock` switches sshc off: while locked it supplies no stored password, passphrase or one-time code from any source, and connections ask you instead. `sshc unlock` switches it back on after your device has verified you - Windows Hello on Windows, the account password on macOS and Linux.

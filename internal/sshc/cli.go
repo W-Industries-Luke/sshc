@@ -26,7 +26,7 @@ import (
 const prog = "sshc"
 
 // version is a variable so that a test build can pretend to be an old one.
-var version = "0.6.0"
+var version = "0.6.1"
 
 const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
        sshc scp  [scp options] source ... target

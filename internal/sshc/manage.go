@@ -109,6 +109,7 @@ func cmdUse(args []string) int {
 		}
 		u.say("Updated!")
 		u.say("%s is now the default profile, in %s", name, cfgFile)
+		sayIfLocked(u)
 		return 0
 	}
 	var code string
@@ -128,6 +129,7 @@ func cmdUse(args []string) int {
 	} else {
 		u.say("This terminal now uses the profile %s.", name)
 	}
+	sayIfLocked(u)
 	return 0
 }
 
