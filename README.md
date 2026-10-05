@@ -647,6 +647,19 @@ password is a failed login rather than a hang.
 
 ## Development
 
+The repository is laid out as follows:
+
+```
+main.go             entry point; everything else is in internal/sshc
+internal/sshc/      the program, one file per concern (see the comment at the
+                    top of cli.go for a guide), with its unit tests alongside
+install.sh          one-line installers for Linux/macOS and Windows; they are
+install.ps1         fetched by URL, so they stay at the top level
+test/e2e.sh         end-to-end tests against a real sshd in Docker
+packaging/          where sshc is published and how to update each channel
+.github/workflows/  CI: unit tests on Linux, Windows and macOS, plus e2e
+```
+
 ```console
 $ make test     # go vet + unit tests
 $ make e2e      # real ssh/scp/sftp against an sshd in Docker
