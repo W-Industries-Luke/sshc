@@ -127,6 +127,13 @@ check "config file profile"          0 "hi"       sshc -F cfg w.go-2 echo hi
 check "config file host section"     0 "hi"       sshc -F cfg inner echo hi
 check "SSHC_PROFILE selects a profile" 255 "Permission denied" env SSHC_PROFILE=bad sshc -F cfg w.go-2 true
 check "SSHC_PASSWORD beats the profile" 0 "hi"    env SSHC_PROFILE=bad "SSHC_PASSWORD=$PW" sshc -F cfg w.go-2 echo hi
+check "set saves the active profile" 0 "Updated!" sshc set 'new pw'
+check "set kept the other entries"   0 "password = jump-pw" cat bin/sshc.conf
+check "set replaced the password"    0 "[profile work] in" sshc set -- "$PW"
+check "set from a pipe"              0 "Updated!" sh -c "printf '%s\\n' '$PW' | sshc set --profile piped"
+check "the piped profile logs in"    0 "hi"       env SSHC_PROFILE=piped sshc -F cfg w.go-2 echo hi
+check "set --host"                   0 "[host kbd] in" sshc set --host kbd "$PW"
+check "set rejects stray options"    1 "Usage: sshc set" sshc set --bogus x
 chmod 644 bin/sshc.conf
 check "world-readable config is refused" 1 "chmod 600" sshc -F cfg w.go-2 true
 

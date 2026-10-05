@@ -21,6 +21,11 @@ const configTemplate = `# sshc configuration.
 # escapes and no inline comments, so "#" and "=" are fine inside a password.
 # Wrap a value in quotes only if it starts or ends with a space.
 
+# "sshc set" edits this file for you.
+
+# "sshc set <password>" clears the screen afterwards; "no" turns that off.
+#clear_on_set = no
+
 # The active profile. $SSHC_PROFILE overrides this per shell.
 #profile = work
 
@@ -149,34 +154,41 @@ func loadConfig(path string) (*config, error) {
 	return &config{path: path, entries: entries}, nil
 }
 
-func cmdInit() int {
-	target := os.Getenv("SSHC_CONFIG")
-	if target == "" {
-		if dir, err := installDir(); err == nil && dirWritable(dir) {
-			target = filepath.Join(dir, configName)
-		} else if p, err := userConfigPath(); err == nil {
-			target = p
-		} else {
-			warnf("could not work out where to put the config file: %v", err)
-			return 1
-		}
+// defaultConfigTarget is where a new config file goes: $SSHC_CONFIG, else
+// next to the executable, else the user config directory.
+func defaultConfigTarget() (string, error) {
+	if p := os.Getenv("SSHC_CONFIG"); p != "" {
+		return p, nil
 	}
+	if dir, err := installDir(); err == nil && dirWritable(dir) {
+		return filepath.Join(dir, configName), nil
+	}
+	return userConfigPath()
+}
+
+// createConfig writes the template to target, which must not exist yet.
+func createConfig(target string) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-		warnf("%v", err)
-		return 1
+		return err
 	}
 	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, os.ErrExist) {
-		warnf("%s already exists; not overwriting it", target)
-		return 1
+		return fmt.Errorf("%s already exists; not overwriting it", target)
 	}
 	if err != nil {
-		warnf("%v", err)
-		return 1
+		return err
 	}
 	_, err = f.WriteString(configTemplate)
 	if cerr := f.Close(); err == nil {
 		err = cerr
+	}
+	return err
+}
+
+func cmdInit() int {
+	target, err := defaultConfigTarget()
+	if err == nil {
+		err = createConfig(target)
 	}
 	if err != nil {
 		warnf("%v", err)

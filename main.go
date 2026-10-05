@@ -27,6 +27,7 @@ const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
 Runs the tool and answers the password prompt from a stored password.
 Everything after the optional tool name is handed to that tool unchanged.
 
+  sshc set [password]           save a password (see "sshc set --help")
   sshc --check [tool] args...   show where the password would come from
   sshc --init                   create a config file template
   sshc --help | --version
@@ -74,6 +75,8 @@ func run(args []string) int {
 		return cmdInit()
 	case "--check":
 		return cmdCheck(args[1:])
+	case "set":
+		return cmdSet(args[1:])
 	}
 	tool := "ssh"
 	if isTool(args[0]) {

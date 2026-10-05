@@ -102,8 +102,17 @@ read -rs SSHC_PASSWORD && export SSHC_PASSWORD
 $env:SSHC_PASSWORD = Read-Host -MaskInput 'Password'
 ```
 
-Type the password and press Enter; nothing is shown. To have it available in
-every terminal instead, use the [config file](#config-file).
+Type the password and press Enter; nothing is shown.
+
+To have it available in every terminal instead, save it in the
+[config file](#config-file):
+
+```console
+$ sshc set
+New password:
+Again:
+Updated!
+```
 
 ### 5. Check, then connect
 
@@ -141,8 +150,8 @@ $ sshc rsync -av --delete ./site/ w.go-2:/var/www/
 $ sshc ssh-copy-id w.go-2
 ```
 
-A host that happens to share a name with one of the tools is reachable as
-`sshc ssh scp`.
+A host that happens to share a name with a subcommand is reachable through
+the explicit form, e.g. `sshc ssh scp` or `sshc ssh set`.
 
 `rsync` and `ssh-copy-id` are not part of OpenSSH and have to be installed
 separately; Windows ships neither, so there these two subcommands are for WSL.
@@ -191,6 +200,27 @@ upper-cased, with everything that is not a letter or digit turned into `_`:
 
 ### Config file
 
+`sshc set` saves a password in the config file, creating the file if needed:
+
+```console
+$ sshc set                        # asks for it, hidden - the safest form
+$ sshc set 'correct horse'        # or give it directly
+$ sshc set --profile home         # a named profile
+$ sshc set --host w.go-2          # one host only
+```
+
+A program cannot change the environment of the shell that started it, so
+`sshc set` always writes to the file; it is the persistent counterpart of
+`SSHC_PASSWORD`, which still wins in a shell where it is set.
+
+When the password is given on the command line, sshc clears the screen and
+scrollback afterwards so it is not left on display. `--no-clear`, or
+`clear_on_set = no` in the config file, turns that off. Clearing the screen
+does not remove the command from your **shell history**, and the argument is
+briefly visible to other users in the process list - use plain `sshc set` to
+avoid both.
+
+You can also edit the file by hand.
 `sshc --init` creates `sshc.conf` next to the sshc executable (or in your user
 config directory if that location is not writable). `$SSHC_CONFIG` points
 somewhere else.
