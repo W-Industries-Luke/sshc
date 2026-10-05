@@ -32,10 +32,10 @@ curl -fsSL https://raw.githubusercontent.com/W-Industries-Luke/sshc/main/install
 brew install W-Industries-Luke/tap/sshc
 ```
 
-Then open a new terminal and run `sshc --version` (or `sshc -v`). A `winget` package is
-prepared but not yet in Microsoft's catalog. Manual downloads, building from
-source and what each method does are covered in
-[Getting started](#2-install-sshc).
+Then open a new terminal and run `sshc -v`. A `winget` package has been
+submitted and is awaiting Microsoft's review; until it is accepted,
+`winget install` will not find sshc. Manual downloads, building from source
+and what each method does are covered in [Getting started](#2-install-sshc).
 
 ## About
 
@@ -105,7 +105,7 @@ the password or passphrase prompt when ssh calls back. Because ssh does the aski
 
 - every option of the wrapped tool works, because sshc never rewrites your arguments;
 - `~/.ssh/config` aliases, `ProxyJump`, port forwards, etc. behave as usual;
-- the password is never on a command line, where `ps` would show it.
+- the secret is never on a command line, where `ps` would show it.
 
 ## Requirements
 
@@ -227,8 +227,8 @@ $ sshc --version
 After that you can delete the downloaded file. `sshc --install <directory>`
 installs somewhere else; running `--install` from a newer download upgrades.
 On Linux and macOS, `--install` also adds the [shell hook](#the-shell-hook)
-that `sshc set --session` needs.
-`SHA256SUMS` on the release page lets you verify the download.
+that `sshc set -s` needs. `SHA256SUMS` on the release page lets you verify the
+download.
 
 **Upgrading.** Use the method you installed with: run the installer script
 again, `scoop update sshc`, or `brew upgrade sshc`. Then open a new terminal,
@@ -274,8 +274,11 @@ $ sshc set -s                 # a login password
 $ sshc set -sp                # or: the passphrase of your SSH key
 New passphrase:
 Again:
+
 Updated!
-  SSHC_PASSPHRASE is set for this terminal session only.
+
+SSHC_PASSPHRASE is set for this terminal session only.
+
 ```
 
 It **stays in effect until you set it again or close the terminal**: every
@@ -290,8 +293,13 @@ Credential Manager, macOS Keychain, the Linux keyring), encrypted:
 ```console
 $ sshc set                    # a login password
 $ sshc set -p                 # or: the passphrase of your SSH key
+New passphrase:
+Again:
+
 Updated!
-  passphrase of [profile default], kept in Windows Credential Manager
+
+passphrase of [profile default], kept in Windows Credential Manager
+
 ```
 
 `sshc list` shows what is stored and where (never the values), and
@@ -301,10 +309,13 @@ Updated!
 
 ```console
 $ sshc check w.go-2
+
 config file: none
+
 w.go-2 -> 203.0.113.7 (user luke)
   no stored password; you would be prompted
   key ~/.ssh/id_ed25519: passphrase from environment variable SSHC_PASSPHRASE
+
 $ sshc w.go-2
 ```
 
@@ -336,6 +347,11 @@ $ sshc rsync -av --delete ./site/ w.go-2:/var/www/
 $ sshc ssh-copy-id w.go-2
 ```
 
+If nothing is stored anywhere, sshc simply runs the tool.
+
+`rsync` and `ssh-copy-id` are not part of OpenSSH and have to be installed
+separately; Windows ships neither, so there these two subcommands are for WSL.
+
 ### sshc's own commands
 
 Besides running the tools above, sshc has a few commands of its own:
@@ -349,7 +365,7 @@ Besides running the tools above, sshc has a few commands of its own:
 | `sshc install` | copy sshc to a per-user folder and put it on `PATH` |
 | `sshc init` | create a config file template |
 | `sshc shell-init [shell]` | print the [shell hook](#the-shell-hook) |
-| `sshc help`, `sshc version` | also `-h` and `-v` |
+| `sshc help`, `sshc version` | also `-h` and `-v`, when given on their own |
 
 `check`, `install`, `init`, `shell-init`, `help` and `version` can also be
 written with a leading `--` (`sshc --check ...`).
@@ -376,11 +392,12 @@ sshc does not use single letters for `check`, `install` and the rest, because
 For the same reason `sshc -v` and `sshc -h` mean `version` and `help` only
 when given on their own: `sshc -v w.go-2` is still ssh's verbose mode.
 
-A host that happens to share a name with a subcommand is reachable through
-the explicit form, e.g. `sshc ssh scp` or `sshc ssh set`.
+A host that happens to share a name with one of these commands is reachable
+through the explicit form, e.g. `sshc ssh list` or `sshc ssh set`.
 
-`rsync` and `ssh-copy-id` are not part of OpenSSH and have to be installed
-separately; Windows ships neither, so there these two subcommands are for WSL.
+sshc's own messages are set apart by blank lines, and on a terminal their key
+words are coloured. Output that is piped or redirected is always plain, and
+`NO_COLOR=1` turns colour off on a terminal too.
 
 ### Moving a host to a key
 
@@ -392,8 +409,6 @@ longer needs a stored password at all:
 $ sshc ssh-copy-id w.go-2
 $ ssh w.go-2                  # logs in with the key
 ```
-
-If nothing is stored anywhere, sshc simply runs the tool.
 
 ## Storing passwords and passphrases
 
@@ -496,7 +511,11 @@ terminal, in the place your operating system provides for exactly this:
 | Linux | the Secret Service keyring (GNOME Keyring, KWallet, KeePassXC) | `secret-tool` from `libsecret-tools`, and a keyring running in your session |
 
 There the secret is encrypted and tied to your login, and it is never written
-to a file sshc owns. Which option you give decides what is saved:
+to a file sshc owns. The Linux store has been used end to end; the Windows
+and macOS ones are newer and so far covered mainly by automated tests, so
+please open an issue if one misbehaves.
+
+Which option you give decides what is saved:
 
 | Command | Saves |
 | ------- | ----- |
@@ -509,12 +528,11 @@ Add `-P NAME` to the first two to save into a profile other than the active
 one. Each command asks for the value hidden; you can also put it at the end of
 the command (`sshc set 'correct horse'`), with the caveats below.
 `sshc unset` takes the same options and removes the entry, and `sshc list`
-shows everything that is stored. (On a terminal sshc colours the key words of
-its messages; set `NO_COLOR=1` to turn that off. Piped output is always
-plain.)
+shows everything that is stored:
 
 ```console
 $ sshc list
+
 config file: /home/luke/.local/bin/sshc.conf
 credential store: the system keyring (Secret Service)
 active profile: default
@@ -522,6 +540,7 @@ active profile: default
 Stored:
   [host w.go-2]                password    credential store
   [profile default]            passphrase  credential store
+
 ```
 
 When the value is given on the command line, sshc clears the screen and
@@ -573,7 +592,8 @@ unless it is owned by you with mode 600.
 Switch profile for one shell with `export SSHC_PROFILE=home`, or for one
 command with `SSHC_PROFILE=home sshc w.go-2`.
 
-`sshc --init` creates the file next to the sshc executable. If that location
+`sshc set` creates the file when it first needs it, next to the sshc
+executable (`sshc init` creates just the template). If that location
 is not writable, or sshc was installed by a package manager (Scoop, Homebrew,
 winget - they replace that folder on every upgrade), the file goes in your
 user config directory instead: `~/.config/sshc/` on Linux,
@@ -599,15 +619,18 @@ A host entry can be written with the alias you type or with the real host
 name, with or without `user@`. A key entry can be the key's file name or its
 full path.
 
-`sshc --check <destination>` shows which sources would be used, without
+`sshc check <destination>` shows which sources would be used, without
 connecting and without printing any secret:
 
 ```console
-$ sshc --check w.go-2
+$ sshc check w.go-2
+
 config file: none
+
 w.go-2 -> 203.0.113.7 (user luke)
   password from environment variable SSHC_PASSWORD
   key ~/.ssh/id_ed25519: no stored passphrase; you would be prompted if it has one
+
 ```
 
 ### Jump hosts
@@ -637,8 +660,8 @@ What sshc does:
   key file. Host key confirmations, one-time codes, security-key PINs and
   password-change prompts go to your terminal as usual. A server cannot word a
   prompt to obtain a different host's password, or a key passphrase.
-- **Offers a stored password once.** If the server rejects it, sshc says so and
-  lets you type instead of repeating it and locking the account.
+- **Offers a stored secret once.** If it is rejected, sshc says so and lets
+  you type instead of repeating it and locking the account.
 - **Never accepts a host key for you.** Your `StrictHostKeyChecking` setting is
   untouched.
 - **Keeps saved secrets in your system's credential store**, encrypted and
@@ -701,7 +724,7 @@ scheduled jobs, or on machines where you cannot run one.
 
 ## Troubleshooting
 
-**It still asks me for the password.** Run `sshc --check <destination>` with
+**It still asks me for the password.** Run `sshc check <destination>` with
 the same arguments. If it says "no stored password", nothing matching is
 stored: a value from `sshc set -s` does not carry over to new terminals, and
 `sshc list` shows everything that is saved and which config file is in use.
