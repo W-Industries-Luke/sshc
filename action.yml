@@ -42,10 +42,12 @@ runs:
         curl -fsSL --retry 3 -o "$dir/$file" "$base/$file"
         curl -fsSL --retry 3 -o "$dir/SHA256SUMS" "$base/SHA256SUMS"
         want=$(awk -v f="$file" '$2 == f { print $1 }' "$dir/SHA256SUMS")
+        # Hash from stdin: given a Windows path, sha256sum escapes the name
+        # and puts a backslash in front of the hash.
         if command -v sha256sum >/dev/null 2>&1; then
-          got=$(sha256sum "$dir/$file" | cut -d' ' -f1)
+          got=$(sha256sum <"$dir/$file" | cut -d' ' -f1)
         else
-          got=$(shasum -a 256 "$dir/$file" | cut -d' ' -f1)
+          got=$(shasum -a 256 <"$dir/$file" | cut -d' ' -f1)
         fi
         if [ -z "$want" ] || [ "$want" != "$got" ]; then
           echo "sshc: checksum mismatch for $file" >&2
