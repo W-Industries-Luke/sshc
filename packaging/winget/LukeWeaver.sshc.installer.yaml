@@ -9,9 +9,9 @@ ReleaseDate: 2026-10-05
 Installers:
 - Architecture: x64
   InstallerUrl: https://github.com/W-Industries-Luke/sshc/releases/download/v0.5.0/sshc-windows-amd64.exe
-  InstallerSha256: 0DC98F48446E67220C29951017B4C67CF4CCFE2E6F179212A07D0E6578382B5C
+  InstallerSha256: 12E302469657B3D1C9580DF25580FD43220751E89E35F72EFC1982B5968DC09C
 - Architecture: arm64
   InstallerUrl: https://github.com/W-Industries-Luke/sshc/releases/download/v0.5.0/sshc-windows-arm64.exe
-  InstallerSha256: 99F88EA7B8CDD9AC8EFF36DE9956A26728EA1AAB4DC8C57D2B6CC29AC7015561
+  InstallerSha256: D526D71ED63A1ED7D29B3992842A5EEDEE3672CEA226031C9407E47872D9387A
 ManifestType: installer
 ManifestVersion: 1.12.0
