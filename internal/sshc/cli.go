@@ -48,6 +48,17 @@ optional tool name is handed to that tool unchanged.
   sshc shell-init [shell]       print the shell hook that "set -s" needs
   sshc help | version           also -h and -v, when given on their own
 
+Options of set and unset. Letters combine: "sshc set -sp" stores a key
+passphrase for this terminal only.
+  -s, --session         this terminal only, as an environment variable
+  -p, --passphrase      a key passphrase rather than a login password
+  -H, --host NAME       the login password of one host
+  -k, --key NAME        the passphrase of one key
+  -P, --profile NAME    a profile other than the active one
+  -f, --plain           keep it in the config file, in plain text (set only)
+  -n, --no-clear        do not clear the screen afterwards (set only)
+  -h, --help            the full help for set or unset
+
 check, init, install, shell-init, help and version can also be written with a
 leading "--". A host that shares a name with one of these words is reachable
 as "sshc ssh <name>".

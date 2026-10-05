@@ -45,6 +45,7 @@ Other options:
   -P, --profile NAME  use that profile instead of the active one
   -n, --no-clear    do not clear the screen after a value given as argument
                     (or put "clear_on_set = no" in the config file)
+  -h, --help        show this help
 
 The active profile is created as "default" if there is none yet.
 "sshc unset" takes the same options and removes an entry; "sshc list" shows
@@ -540,6 +541,7 @@ active profile.
   -H, --host NAME     the login password of one host
   -k, --key NAME      the passphrase of one key
   -P, --profile NAME  use that profile instead of the active one
+  -h, --help          show this help
 `
 
 func cmdUnset(args []string) int {
