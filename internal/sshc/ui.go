@@ -74,7 +74,7 @@ var highlights = []struct {
 	{regexp.MustCompile(`(?m)^\s*(Warning:)`), sgrRed},
 	{regexp.MustCompile(`(?m)^\s*(Note:|Optional:)`), sgrYellow},
 	{regexp.MustCompile(`MISSING|was not accepted|not available|not readable here`), sgrRed},
-	{regexp.MustCompile(`(?m)^(config file|credential store|active profile|Stored|Set in this terminal|Hosts in [^:\n]*)\b[^:\n]*:`), sgrBold},
+	{regexp.MustCompile(`(?m)^(config file|credential store|active profile|Stored|On login|Set in this terminal|Hosts in [^:\n]*)\b[^:\n]*:`), sgrBold},
 	{regexp.MustCompile(`no credential store is available here`), sgrYellow},
 	// Where a secret is.
 	{regexp.MustCompile(`Windows Credential Manager|the macOS Keychain|the system keyring \(Secret Service\)|credential store|for this terminal session only`), sgrGreen},

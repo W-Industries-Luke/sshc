@@ -20,13 +20,13 @@ func TestExpandShort(t *testing.T) {
 		{"-k", "--key"},
 	}
 	for _, tt := range tests {
-		got, ok := expandShort(strings.Fields(tt.in))
+		got, ok := expandShort(strings.Fields(tt.in), true)
 		if !ok || strings.Join(got, " ") != tt.want {
 			t.Errorf("expandShort(%q) = %q, %v; want %q", tt.in, got, ok, tt.want)
 		}
 	}
 	for _, bad := range []string{"-x", "-sx", "-sZ value"} {
-		if got, ok := expandShort(strings.Fields(bad)); ok {
+		if got, ok := expandShort(strings.Fields(bad), true); ok {
 			t.Errorf("expandShort(%q) = %q; want a rejection", bad, got)
 		}
 	}

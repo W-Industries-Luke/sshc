@@ -26,7 +26,7 @@ import (
 const prog = "sshc"
 
 // version is a variable so that a test build can pretend to be an old one.
-var version = "0.6.2"
+var version = "0.7.0"
 
 const usageText = `Usage: sshc [ssh] [ssh options] destination [command ...]
        sshc scp  [scp options] source ... target
@@ -54,6 +54,9 @@ Storing secrets:
                                 verified you (PIN, or account password)
 
 More ways to connect:
+  sshc set -H HOST -d DIR       start interactive logins to HOST in DIR, and
+  sshc set -H HOST -e COMMAND   run COMMAND there first; "sshc --no-entry HOST"
+                                skips both once
   sshc                          on its own: pick a host from your ssh config
   sshc pick                     the same, explicitly
   sshc hosts                    list the hosts in your ssh config
@@ -85,6 +88,8 @@ passphrase for this terminal only.
                         time and use what it prints (set only)
   -o, --otp             the one-time code a host asks for after the password;
                         needs -H and -c
+  -d, --dir PATH        with -H: the directory an interactive login starts in
+  -e, --entry COMMAND   with -H: a command run on the host before your shell
   -f, --plain           keep it in the config file, in plain text (set only)
   -n, --no-clear        do not clear the screen afterwards (set only)
   -h, --help            the full help for set or unset
@@ -176,6 +181,15 @@ func Main(args []string) int {
 			args = []string{"--version"}
 		case "-h":
 			args = []string{"--help"}
+		}
+	}
+	// "sshc --no-entry host" logs in without the host's start directory and
+	// entry command, this once.
+	if args[0] == "--no-entry" {
+		os.Setenv(envNoEntry, "1")
+		if args = args[1:]; len(args) == 0 {
+			fmt.Print(usageText)
+			return 1
 		}
 	}
 	// Each action has a plain word as well as its "--" form. Single letters

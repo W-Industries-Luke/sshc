@@ -70,6 +70,9 @@ What it does:
   [verification code](#one-time-codes) after the password.
 - **Installs in CI** as a [GitHub Action](#github-actions), for deploying to
   hosts that only take a password.
+- **Starts you where you work**: a [start directory and an entry
+  command](#a-start-directory-and-an-entry-command) per host, for interactive
+  logins only.
 - **Can be switched off**: [`sshc lock`](#locking-sshc) stops it supplying
   anything until your device has verified you again.
 - **Looks after itself**: [`sshc doctor`](#when-something-is-off-sshc-doctor)
@@ -95,6 +98,7 @@ What it does:
 - [Usage](#usage)
   - [sshc's own commands](#sshcs-own-commands)
   - [Picking a host](#picking-a-host)
+  - [A start directory and an entry command](#a-start-directory-and-an-entry-command)
   - [Several hosts at once](#several-hosts-at-once)
   - [git, ansible and other programs: sshc run](#git-ansible-and-other-programs-sshc-run)
   - [Unlocking a key for everything: sshc ssh-add](#unlocking-a-key-for-everything-sshc-ssh-add)
@@ -145,7 +149,10 @@ OpenSSH has a hook, `SSH_ASKPASS`, for a program that answers its prompts.
 sshc starts the real `ssh` with itself registered as that program, and answers
 the password or passphrase prompt when ssh calls back. Because ssh does the asking:
 
-- every option of the wrapped tool works, because sshc never rewrites your arguments;
+- every option of the wrapped tool works, because sshc passes your arguments on
+  as they are (the one exception is opt-in: a
+  [start directory or entry command](#a-start-directory-and-an-entry-command)
+  you set for a host);
 - `~/.ssh/config` aliases, `ProxyJump`, port forwards, etc. behave as usual;
 - the secret is never on a command line, where `ps` would show it.
 
@@ -225,8 +232,8 @@ brew install W-Industries-Luke/tap/sshc                                   # macO
 `amd64` and `arm64`, which install `sshc` to `/usr/bin` with its man page:
 
 ```console
-$ sudo apt install ./sshc_0.6.2_amd64.deb        # Debian, Ubuntu
-$ sudo dnf install ./sshc-0.6.2-1.x86_64.rpm     # Fedora, RHEL
+$ sudo apt install ./sshc_0.7.0_amd64.deb        # Debian, Ubuntu
+$ sudo dnf install ./sshc-0.7.0-1.x86_64.rpm     # Fedora, RHEL
 ```
 
 **Manual download** - download the one file for your system, then run it once
@@ -459,6 +466,8 @@ combine:
 | `-P NAME` | `--profile NAME` | a profile other than the active one |
 | `-c CMD` | `--command CMD` | do not store it; [run CMD](#password-managers) each time to fetch it |
 | `-o` | `--otp` | a [one-time code](#one-time-codes); needs `-H` and `-c` |
+| `-d PATH` | `--dir PATH` | with `-H`: the [directory a login starts in](#a-start-directory-and-an-entry-command) |
+| `-e CMD` | `--entry CMD` | with `-H`: a command run on the host before your shell |
 | `-f` | `--plain` | keep it in the config file, in plain text |
 | `-n` | `--no-clear` | do not clear the screen afterwards |
 | `-h` | `--help` | show the options |
@@ -500,6 +509,49 @@ as before.)
 
 With the [shell hook](#the-shell-hook) loaded, pressing Tab completes host
 names too: `sshc w<Tab>`, `sshc scp ./file w<Tab>`, `sshc set -H <Tab>`.
+
+### A start directory and an entry command
+
+A host can have a directory to land in and a command to run when you log in:
+
+```console
+$ sshc set -H w.go-2 -d /var/www
+$ sshc set -H w.go-2 -e 'source ~/venv/bin/activate'
+$ sshc w.go-2                 # lands in /var/www, with the venv active
+```
+
+`-d` is `--dir` and `-e` is `--entry`; both can be given in one command.
+`sshc unset -H w.go-2 -d` (or `-e`) removes one, `sshc list` shows them, and
+`sshc check w.go-2` shows the exact command a login would run. To log in
+without them once, put `--no-entry` first: `sshc --no-entry w.go-2`.
+
+They apply **only to an interactive login**: plain `sshc w.go-2` typed at a
+terminal, with nothing after the host. Everything else is left exactly as
+you typed it - a command of your own (`sshc w.go-2 uptime`), `sshc scp`,
+`sftp`, `rsync`, `each`, `run`, port forwarding with `-N`, and input that is
+piped in. That is the difference from ssh's own `RemoteCommand` setting,
+which applies to every connection to the host and so breaks file copies, git
+and one-off commands.
+
+How it works: for such a login sshc asks ssh for a terminal and sends one
+command to the host - change directory, run your entry command, then start
+your usual login shell - so the session behaves like a normal one from there
+on. Nothing is run on your own machine, and the directory is quoted so that
+a path with spaces or odd characters cannot become extra commands. The
+settings are not secrets; they are kept in the config file as plain text.
+
+Things to know:
+
+- It expects a Unix-style shell on the host (sh, bash, zsh, fish).
+- Exported variables and the directory carry over into your shell. Aliases
+  and shell functions defined by the entry command do not, because your login
+  shell starts fresh after it; put those in the host's own startup file.
+- The host usually leaves out its "Last login" line and message of the day
+  for such a session.
+- If the directory does not exist you get the error and a normal shell in
+  your home directory; the entry command is skipped.
+- A command forced by the host's administrator takes precedence, and a host
+  with `RemoteCommand` in your ssh config is left alone.
 
 ### Several hosts at once
 
@@ -563,7 +615,7 @@ startup file and your key is unlocked in every session without typing.
 $ sshc doctor
 
   ok       OpenSSH client: OpenSSH_9.6p1
-  ok       sshc 0.6.2 at /home/luke/.local/bin/sshc
+  ok       sshc 0.7.0 at /home/luke/.local/bin/sshc
   PROBLEM  the shell hook is not loaded in this terminal
            -> add this line to your shell's startup file and open a new terminal:
               command -v sshc >/dev/null 2>&1 && eval "$(sshc --shell-init posix)"
@@ -844,6 +896,11 @@ passphrase = @credential-store
 # Fetched from a password manager each time, by running this command.
 [host db-prod]
 password_command = op read "op://Work/db-prod/password"
+
+# Where an interactive login to this host starts, and what it runs first.
+[host web1]
+directory = /var/www
+entry = source ~/venv/bin/activate
 ```
 
 `sshc set` and `sshc unset` maintain this file for you, so there is normally
@@ -878,8 +935,9 @@ user config directory instead: `~/.config/sshc/` on Linux,
 is in use.
 
 Values run to the end of the line and are taken literally. The file is parsed
-as data; the only thing sshc ever runs from it is a `password_command` or
-`passphrase_command` that you put there.
+as data; the only things sshc ever runs from it are the ones you put there to
+be run: a `password_command`, `passphrase_command` or `otp_command` on your
+machine, and an `entry` command on the host you log in to.
 
 ### Which one is used
 
@@ -963,6 +1021,9 @@ What it cannot do:
   same way - whichever of the three places it is kept in. The credential
   store protects against someone reading your disk, a backup or another
   account on the machine, not against malware in your own session.
+- An `entry` command is run on the host, as you, at every interactive login
+  to it - so, like a `password_command`, it is only as trustworthy as your
+  config file.
 - A `password_command` is run with your permissions by anything that can
   edit your config file. On Linux and macOS sshc insists that only you can;
   on Windows that rests on the folder's permissions.
@@ -1070,7 +1131,7 @@ repository is also an action that installs sshc on the runner:
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: W-Industries-Luke/sshc@v0.6.2
+  - uses: W-Industries-Luke/sshc@v0.7.0
   - run: |
       mkdir -p ~/.ssh && echo "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
       sshc scp -r ./site deploy@example.com:/var/www

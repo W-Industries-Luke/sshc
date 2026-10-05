@@ -38,6 +38,11 @@ Only the latest release is supported.
   Secret Service keyring keep it encrypted and tied to your login.
 - **A config file others can read or write.** On Linux and macOS sshc
   refuses a config file that is not owned by you with mode 600.
+- **A start directory that turns into commands.** The directory set with
+  `--dir` is quoted for the remote shell, so it is only ever a directory. The
+  `--entry` command is, by design, run on the host as written; it is added
+  only to an interactive login to the host it was set for, and never to scp,
+  sftp, rsync or a command the user gives.
 - **Command injection through host names.** A configured command is run
   directly, never by a shell, and `%h`, `%u` and `%k` are substituted as
   whole arguments.
@@ -71,8 +76,9 @@ Only the latest release is supported.
   the config file, or the fallback where no credential store exists, is
   readable by anything that can read your files. A key passphrase stored that
   way protects the key about as well as no passphrase.
-- **A password manager command that someone else can change.** A
-  `password_command` runs with your permissions. On Windows, where sshc cannot
+- **A password manager command or entry command that someone else can
+  change.** A `password_command` runs on your machine with your permissions,
+  and an `entry` command runs on the host as you at each login. On Windows, where sshc cannot
   check the config file's permissions, keep the file under your user profile.
 - **The server itself.** A password you send to a host is known to that host.
 - **Unsigned binaries.** The release files are not code-signed, so Windows

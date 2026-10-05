@@ -18,6 +18,7 @@ const (
 type dest struct {
 	alias, hostname, user string
 	keys                  []string // identity files ssh would try; not passed to askpass
+	remoteCommand         string   // RemoteCommand from the ssh config, if any
 }
 
 func encodeDests(ds []dest) string {

@@ -4,6 +4,7 @@
 set -u
 
 [ $# -eq 1 ] || { echo "usage: $0 path/to/sshc" >&2; exit 2; }
+here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 name=sshc-e2e-$$
 trap 'docker rm -f "$name" >/dev/null 2>&1; rm -rf "$work"' EXIT
@@ -83,6 +84,25 @@ check "-v with a host stays ssh -v"  0 "debug1: Authenticating to" sshc -v -F cf
 check "explicit ssh subcommand"      0 "hi"       sshc ssh -F cfg w.go-2 echo hi
 check "remote exit status is kept"   7 ""         sshc -F cfg w.go-2 'exit 7'
 check "keyboard-interactive"         0 "hi"       sshc -F cfg kbd echo hi
+
+# A start directory and an entry command, for interactive logins only.
+check "set a start directory and entry command" 0 "Updated!" sshc set -H w.go-2 -d /tmp -e 'export ENTRY_RAN=yes'
+if command -v python3 >/dev/null; then
+	login() { python3 "$here/ptydrive.py" '$ =echo "at=$PWD ran=${ENTRY_RAN-no}"; exit' -- "$@"; }
+	check "an interactive login starts there" 0 "at=/tmp ran=yes" login sshc -F cfg w.go-2
+	check "--no-entry logs in plainly"   0 "at=/home/luke ran=no" login sshc --no-entry -F cfg w.go-2
+	check "the picker's kind of login too" 0 "at=/tmp ran=yes" login sshc ssh -F cfg w.go-2
+else
+	echo "skip interactive login tests (no python3)"
+fi
+check "a command of your own is left alone" 0 "/home/luke" sshc -F cfg w.go-2 pwd
+check "check shows what a login runs" 0 "an interactive login runs: cd '/tmp' && export ENTRY_RAN=yes" sshc check -F cfg w.go-2
+check "list shows the login settings" 0 "On login:" sshc list
+check "unset the start directory"    0 "directory of [host w.go-2]" sshc unset -H w.go-2 -d
+check "unset the entry command"      0 "entry of [host w.go-2]" sshc unset -H w.go-2 --entry
+check "nothing left to unset"        1 "has no entry set" sshc unset -H w.go-2 -e
+check "dir and entry need a host"    1 "belong to one host" sshc set -d /tmp
+rm -f bin/sshc.conf
 
 mkdir -p up/d && echo payload >up/d/f
 check "scp -r upload"                0 ""         sshc scp -F cfg -r ./up w.go-2:copy

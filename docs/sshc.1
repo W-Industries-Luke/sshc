@@ -1,4 +1,4 @@
-.TH SSHC 1 "2026-10-05" "sshc 0.6.2" "User Commands"
+.TH SSHC 1 "2026-10-05" "sshc 0.7.0" "User Commands"
 .SH NAME
 sshc \- ssh, scp, sftp and rsync that answer the password prompt for you
 .SH SYNOPSIS
@@ -70,6 +70,24 @@ for the one-time code a host asks for after the password.
 takes the same options and removes an entry;
 .B sshc list
 shows what is stored and where, never the values.
+.SH LOGIN SETTINGS
+.TP
+.BI "sshc set \-H " host " \-d " directory
+Start interactive logins to
+.I host
+in that directory.
+.TP
+.BI "sshc set \-H " host " \-e " command
+Run
+.I command
+on the host first, before the login shell.
+.PP
+Both apply only to plain
+.BI "sshc " host
+typed at a terminal, never to scp, sftp, rsync or a command given on the
+command line.
+.BI "sshc \-\-no\-entry " host
+skips them once.
 .SH OTHER COMMANDS
 .TP
 .BI "sshc check " destination

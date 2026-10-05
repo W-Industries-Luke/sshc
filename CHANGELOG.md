@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+
+- A start directory and an entry command per host: `sshc set -H HOST -d /var/www` and `sshc set -H HOST -e 'COMMAND'` (`--dir`, `--entry`). An interactive login to that host then starts in the directory, runs the command, and hands over to your normal login shell.
+- They apply only to plain `sshc HOST` at a terminal. A command of your own, `scp`, `sftp`, `rsync`, `each`, `run`, port forwarding with `-N` and piped input are untouched - unlike ssh's `RemoteCommand`, which applies to every connection.
+- `sshc --no-entry HOST` (or `SSHC_NO_ENTRY=1`) logs in without them once. `sshc unset -H HOST -d` / `-e` removes one; `sshc list` and `sshc check` show them.
+
+This is the one case in which sshc adds to what it passes to ssh, and only for a host you have set it up for. It expects a Unix-style shell on the host.
+
 ## 0.6.2
 
 No more "open a new terminal" after an update:

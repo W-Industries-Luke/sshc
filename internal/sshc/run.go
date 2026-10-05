@@ -145,6 +145,13 @@ func prepare(name string) (cfgPath string, ok, plain bool) {
 }
 
 func runTool(tool string, args []string) int {
+	// A start directory or entry command is not a secret: it applies whether
+	// or not anything is stored, and whether or not sshc is locked.
+	if tool == "ssh" {
+		if path, err := findConfig(); err == nil && path != "" && checkConfigSecure(path) == nil {
+			args = withEntry(args, path)
+		}
+	}
 	cfgPath, ok, plain := prepare(tool)
 	if plain {
 		return passthrough(tool, args)
@@ -280,6 +287,9 @@ func cmdCheck(args []string) int {
 		}
 		if code, from, _ := r.lookupOTP(d.user, d.hostname); code != "" {
 			lines = append(lines, "  one-time code from "+from)
+		}
+		if dir, entry := r.loginSettings(d.user, d.hostname); tool == "ssh" && (dir != "" || entry != "") {
+			lines = append(lines, "  an interactive login runs: "+entryCommand(dir, entry))
 		}
 		for _, key := range d.keys {
 			file := key

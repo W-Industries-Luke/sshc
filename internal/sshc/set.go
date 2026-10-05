@@ -47,6 +47,13 @@ What to store:
                     Always fetched by a command, for one host:
                     sshc set -o -H NAME -c 'oathtool --totp -b SECRET'
 
+Not secrets, but set the same way - for an interactive login to one host:
+  -d, --dir PATH    the directory to start in:  sshc set -H NAME -d /var/www
+  -e, --entry CMD   a command to run on the host first, before your shell:
+                    sshc set -H NAME -e 'source ~/venv/bin/activate'
+                    Both apply to plain "sshc NAME" only, never to scp, sftp,
+                    rsync or a command you give yourself.
+
 Other options:
   -P, --profile NAME  use that profile instead of the active one
   -n, --no-clear    do not clear the screen after a value given as argument
@@ -237,7 +244,21 @@ var (
 // expandShort rewrites short options to their long forms, so "-sp" becomes
 // "--session --passphrase" and "-H box" becomes "--host box". Everything from
 // "--" on is left alone, as is a lone "-".
-func expandShort(args []string) (out []string, ok bool) {
+func expandShort(args []string, takesValue bool) (out []string, ok bool) {
+	// -d and -e carry a value for "set" and are plain flags for "unset".
+	flags := map[byte]string{}
+	valued := map[byte]string{}
+	for k, v := range shortFlags {
+		flags[k] = v
+	}
+	for k, v := range shortWithValue {
+		valued[k] = v
+	}
+	if takesValue {
+		valued['d'], valued['e'] = "--dir", "--entry"
+	} else {
+		flags['d'], flags['e'] = "--dir", "--entry"
+	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
@@ -248,12 +269,12 @@ func expandShort(args []string) (out []string, ok bool) {
 			continue
 		}
 		for j := 1; j < len(arg); j++ {
-			if long, isFlag := shortFlags[arg[j]]; isFlag {
+			if long, isFlag := flags[arg[j]]; isFlag {
 				out = append(out, long)
 				continue
 			}
-			long, takesValue := shortWithValue[arg[j]]
-			if !takesValue {
+			long, hasValue := valued[arg[j]]
+			if !hasValue {
 				return nil, false
 			}
 			if rest := arg[j+1:]; rest != "" {
@@ -272,13 +293,15 @@ func expandShort(args []string) (out []string, ok bool) {
 
 // target is what a "set" or "unset" command line points at.
 type target struct {
-	profile, host, key  string
-	command             string // fetch the secret by running this instead of storing it
-	passphrase, session bool
-	otp                 bool // the one-time code a host asks for after the password
-	plain, clear        bool
-	value               string
-	haveValue           bool
+	profile, host, key   string
+	command              string // fetch the secret by running this instead of storing it
+	dir, entry           string // where an interactive login starts, and what it runs first
+	unsetDir, unsetEntry bool
+	passphrase, session  bool
+	otp                  bool // the one-time code a host asks for after the password
+	plain, clear         bool
+	value                string
+	haveValue            bool
 }
 
 // parseTarget reads the options shared by "set" and "unset". done is true
@@ -289,7 +312,7 @@ func parseTarget(args []string, usage string, takesValue bool, out *os.File) (t 
 		warnf(format, a...)
 		return t, 1, true
 	}
-	args, ok := expandShort(args)
+	args, ok := expandShort(args, takesValue)
 	if !ok {
 		fmt.Fprint(os.Stderr, usage)
 		return t, 1, true
@@ -323,6 +346,28 @@ func parseTarget(args []string, usage string, takesValue bool, out *os.File) (t 
 				return fail("%q is not a usable command", val)
 			}
 			t.command = val
+		case (name == "--dir" || name == "--entry") && !takesValue:
+			if name == "--dir" {
+				t.unsetDir = true
+			} else {
+				t.unsetEntry = true
+			}
+		case name == "--dir" || name == "--entry":
+			if !attached {
+				i++
+				if i >= len(args) {
+					return fail("%s needs a value", name)
+				}
+				val = args[i]
+			}
+			if strings.TrimSpace(val) == "" || strings.ContainsAny(val, "\r\n") {
+				return fail("%q is not a usable value for %s", val, name)
+			}
+			if name == "--dir" {
+				t.dir = val
+			} else {
+				t.entry = val
+			}
 		case name == "--profile" || name == "--host" || name == "--key":
 			if !attached {
 				i++
@@ -351,6 +396,12 @@ func parseTarget(args []string, usage string, takesValue bool, out *os.File) (t 
 		default:
 			t.value, t.haveValue = arg, true
 		}
+	}
+	if t.dir != "" || t.entry != "" || t.unsetDir || t.unsetEntry {
+		if t.host == "" || t.key != "" || t.profile != "" || t.passphrase || t.session || t.plain || t.otp || t.command != "" || t.haveValue {
+			return fail("a start directory and an entry command belong to one host: use --dir and --entry with --host, and nothing else")
+		}
+		return t, 0, false
 	}
 	chosen := 0
 	for _, on := range []bool{t.host != "", t.key != "", t.profile != "" || t.passphrase} {
@@ -446,6 +497,9 @@ func cmdSet(args []string) int {
 	t, rc, done := parseTarget(args, setUsage, true, out)
 	if done {
 		return rc
+	}
+	if t.dir != "" || t.entry != "" {
+		return setLogin(t, false, out)
 	}
 	what := t.what()
 
@@ -593,6 +647,8 @@ active profile.
   -H, --host NAME     the login password of one host
   -k, --key NAME      the passphrase of one key
   -P, --profile NAME  use that profile instead of the active one
+  -d, --dir           with -H: the start directory of that host
+  -e, --entry         with -H: the entry command of that host
   -h, --help          show this help
 `
 
@@ -605,6 +661,9 @@ func cmdUnset(args []string) int {
 	t, rc, done := parseTarget(args, unsetUsage, false, out)
 	if done {
 		return rc
+	}
+	if t.unsetDir || t.unsetEntry {
+		return setLogin(t, true, out)
 	}
 	what := t.what()
 
@@ -731,6 +790,10 @@ func cmdList(args []string) int {
 		u.say("Nothing is stored.")
 	} else {
 		u.say("Stored:\n%s", strings.Join(rows, "\n"))
+	}
+
+	if rows := loginRows(cfg); len(rows) > 0 {
+		u.say("On login:\n%s", strings.Join(rows, "\n"))
 	}
 
 	var vars []string

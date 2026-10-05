@@ -19,7 +19,7 @@ var ownCommands = []string{
 }
 
 var setOptions = []string{
-	"--session", "--passphrase", "--host", "--key", "--profile", "--plain", "--command", "--otp", "--no-clear", "--help",
+	"--session", "--passphrase", "--host", "--key", "--profile", "--plain", "--command", "--otp", "--dir", "--entry", "--no-clear", "--help",
 }
 
 // privateKeys lists the key files in ~/.ssh by name.
@@ -91,7 +91,7 @@ func completions(words []string, cword int) []string {
 			candidates = privateKeys()
 		case "-P", "--profile":
 			candidates = profileNames()
-		case "-c", "--command":
+		case "-c", "--command", "-d", "--dir", "-e", "--entry":
 		default:
 			if strings.HasPrefix(cur, "-") {
 				candidates = setOptions

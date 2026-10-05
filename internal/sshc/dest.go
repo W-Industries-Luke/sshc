@@ -228,6 +228,8 @@ func queryDest(args []string) (d dest, ok bool) {
 			d.user = v
 		case "identityfile":
 			d.keys = append(d.keys, v)
+		case "remotecommand":
+			d.remoteCommand = v
 		}
 	}
 	return d, d.hostname != ""
